@@ -47,6 +47,22 @@ resize();
 let state = "new_user"; // new_user, customise, show_leaderboard, playing, challenge, challenge_result, level_complete
 let profiles = JSON.parse(localStorage.getItem("dm_profiles") || '{"users":{},"active":""}');
 let leaderboard = JSON.parse(localStorage.getItem("dm_leaderboard") || "{}");
+const LB_API = "https://athletics-elements-zen-barcelona.trycloudflare.com/api/leaderboard";
+
+// Fetch shared leaderboard on load
+async function fetchLeaderboard() {
+  try {
+    const res = await fetch(LB_API);
+    if (res.ok) {
+      const data = await res.json();
+      leaderboard = data;
+      localStorage.setItem("dm_leaderboard", JSON.stringify(data));
+    }
+  } catch(e) { console.warn("Could not fetch shared leaderboard:", e); }
+}
+fetchLeaderboard();
+// Refresh every 30s
+setInterval(fetchLeaderboard, 30000);
 let activeUser = profiles.active || "";
 let selectedColour = "Red";
 let selectedEyes = "Big Round";
@@ -758,7 +774,7 @@ function drawPlaying() {
 
       drawText("Click, press 1/2/3, or use arrow keys!", W/2, H/2+95, {size:16, colour:"#ccc"});
       const rw = TIME_REWARD[challengeTimeLimit] || 5;
-      drawText(`Correct = -${rw}s  |  Wrong = +${rw}s penalty`, W/2, H/2+115, {size:13, colour:"#888"});
+      drawText(`Correct = -${rw}s off your time!  |  Wrong = no penalty`, W/2, H/2+115, {size:13, colour:"#888"});
     }
   }
 
@@ -855,11 +871,10 @@ function finishChallenge(correct) {
     challengeResultMsg2 = `${rw} seconds removed from your time!`;
     challengeResultColour = "#32dc32";
   } else {
-    timeElapsed += rw;
     const q = activeChallenge.question.replace(" = ?","");
     challengeResultMsg = `Uh Oh! ${q} = ${activeChallenge.correctVal}`;
-    challengeResultMsg2 = `${rw} second penalty added to your time!`;
-    challengeResultColour = "#dc3232";
+    challengeResultMsg2 = "No time penalty - better luck next time!";
+    challengeResultColour = "#dc9632";
   }
   state = "challenge_result";
 }
@@ -877,10 +892,14 @@ function tryMove(dx, dy, dir) {
     const [w2,h2] = levelDims(level);
     const bk = boardKey(w2,h2);
     if (!leaderboard[bk]) leaderboard[bk] = [];
-    leaderboard[bk].push({name:activeUser, time:Math.round(timeElapsed*100)/100, moves});
+    const score = {name:activeUser, time:Math.round(timeElapsed*100)/100, moves};
+    leaderboard[bk].push(score);
     leaderboard[bk].sort((a,b)=>a.time-b.time);
     leaderboard[bk] = leaderboard[bk].slice(0,10);
     saveLB();
+    // Submit to shared server
+    fetch(`${LB_API}/${bk}`, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(score)})
+      .then(()=>fetchLeaderboard()).catch(e=>console.warn("Score submit failed:",e));
     state = "level_complete";
   }
 }
