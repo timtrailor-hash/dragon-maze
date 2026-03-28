@@ -127,8 +127,63 @@ function generateMaze(w, h) {
   return { w, h, grid, canMove(x,y,d) { return x>=0 && x<w && y>=0 && y<h && !grid[y][x].has(d); } };
 }
 
-// ─── DRAGON DRAWING ───
-function drawDragon(cx, cy, scale, dir, t, colour, eyeStyle, wings) {
+// ─── DRAGON SPRITES ───
+const dragonSprites = {};
+let spritesLoaded = 0;
+const SPRITE_TOTAL = 16;
+const COLOUR_NAMES_LC = Object.keys(DRAGON_COLOURS).map(n => n.toLowerCase());
+
+function preloadSprites() {
+  for (const name of Object.keys(DRAGON_COLOURS)) {
+    for (const w of ["wings", "nowings"]) {
+      const key = `${name.toLowerCase()}_${w}`;
+      const img = new window.Image();
+      img.onload = () => { spritesLoaded++; };
+      img.src = `sprites/dragon_${key}.png`;
+      dragonSprites[key] = img;
+    }
+  }
+}
+preloadSprites();
+
+function drawDragon(cx, cy, scale, dir, t, colourArr, eyeStyle, wings) {
+  // Find colour name from array
+  let colName = "red";
+  for (const [name, c] of Object.entries(DRAGON_COLOURS)) {
+    if (c[0]===colourArr[0] && c[1]===colourArr[1] && c[2]===colourArr[2]) { colName = name.toLowerCase(); break; }
+  }
+  const key = `${colName}_${wings ? "wings" : "nowings"}`;
+  const sprite = dragonSprites[key];
+
+  // Render size based on scale
+  const renderSize = Math.max(30, scale * 28);
+
+  ctx.save();
+
+  // Bob animation
+  const bob = Math.sin(t * 3) * 2 * scale;
+
+  // Flip for left-facing
+  if (dir === "left") {
+    ctx.translate(cx, cy + bob);
+    ctx.scale(-1, 1);
+    ctx.translate(-cx, -(cy + bob));
+  }
+
+  if (sprite && sprite.complete && sprite.naturalWidth > 0) {
+    ctx.drawImage(sprite, cx - renderSize/2, cy + bob - renderSize/2, renderSize, renderSize);
+  } else {
+    // Fallback while loading
+    ctx.fillStyle = rgb(colourArr, 0.5);
+    ctx.beginPath(); ctx.arc(cx, cy + bob, renderSize/3, 0, Math.PI*2); ctx.fill();
+    drawText("...", cx, cy + bob, {size: renderSize/4, colour: "#fff"});
+  }
+
+  ctx.restore();
+}
+
+// Keep old function signature compatible - unused but prevents errors
+function drawDragonOld(cx, cy, scale, dir, t, colour, eyeStyle, wings) {
   const s = scale;
   const r = colour[0], g = colour[1], b = colour[2];
   const bob = Math.sin(t * 3) * 2 * s;
@@ -337,7 +392,7 @@ function drawDragon(cx, cy, scale, dir, t, colour, eyeStyle, wings) {
   }
 
   ctx.restore();
-}
+} // end drawDragonOld
 
 // ─── UI HELPERS ───
 let hoveredBtn = null;
