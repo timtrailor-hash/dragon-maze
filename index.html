@@ -53,24 +53,40 @@ let profiles = JSON.parse(localStorage.getItem("dm_profiles") || '{"users":{},"a
 let leaderboard = JSON.parse(localStorage.getItem("dm_leaderboard") || "{}");
 const LB_API = "https://quoted-christine-northern-diamonds.trycloudflare.com/api/leaderboard";
 
-// Fetch shared leaderboard on load
+// Fetch shared leaderboard on load and merge with local scores
+let hasUpsynced = false;
 async function fetchLeaderboard() {
   try {
     const res = await fetch(LB_API, {headers:{"Accept":"application/json"}});
     if (res.ok) {
-      const data = await res.json();
-      if (data && typeof data === "object" && Object.keys(data).length > 0) {
-        leaderboard = data;
-      } else if (Object.keys(data).length === 0 && Object.keys(leaderboard).length > 0) {
-        // Server is empty but we have local data — push it up
+      const serverData = await res.json();
+      // Push any local scores the server doesn't have yet (once per session)
+      if (!hasUpsynced && Object.keys(leaderboard).length > 0) {
+        hasUpsynced = true;
         for (const [key, entries] of Object.entries(leaderboard)) {
           for (const e of entries) {
-            fetch(`${LB_API}/${key}`, {method:"POST", headers:{"Content-Type":"application/json"},
-              body:JSON.stringify(e)}).catch(()=>{});
+            const serverEntries = serverData[key] || [];
+            const alreadyThere = serverEntries.some(s => s.name === e.name && s.time <= e.time);
+            if (!alreadyThere) {
+              await fetch(`${LB_API}/${key}`, {method:"POST", headers:{"Content-Type":"application/json"},
+                body:JSON.stringify(e)}).catch(()=>{});
+            }
           }
         }
+        // Re-fetch after pushing
+        const res2 = await fetch(LB_API, {headers:{"Accept":"application/json"}});
+        if (res2.ok) {
+          const merged = await res2.json();
+          leaderboard = merged;
+          localStorage.setItem("dm_leaderboard", JSON.stringify(leaderboard));
+          return;
+        }
       }
-      localStorage.setItem("dm_leaderboard", JSON.stringify(leaderboard));
+      // Merge server data into local (server is authoritative)
+      if (serverData && typeof serverData === "object") {
+        leaderboard = serverData;
+        localStorage.setItem("dm_leaderboard", JSON.stringify(leaderboard));
+      }
     }
   } catch(e) { console.warn("Could not fetch shared leaderboard:", e); }
 }
