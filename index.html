@@ -1408,15 +1408,16 @@ function drawPlaying() {
       drawText("Maths Challenge!", W/2, H/2-65, {size:32, colour:"#ffd700", bold:true});
       drawText(activeChallenge.question, W/2, H/2-20, {size:28, colour:"#fff", bold:true});
 
-      const arrows = ["\u2190 Left", "\u2193 Down", "\u2192 Right"];
+      const mob2 = W < 700;
+      const abw = mob2 ? Math.min(140, (W-40)/3) : 160;
+      const abgap = mob2 ? 5 : 10;
+      const totalW = abw*3 + abgap*2;
+      const abStartX = W/2 - totalW/2;
       activeChallenge.answers.forEach((ans, i) => {
-        const bx = W/2 - 270 + i*180;
-        btn(bx, H/2+20, 160, 55, "", {colour:[70,50,110], action:()=>{
+        const bx = abStartX + i*(abw+abgap);
+        btn(bx, H/2+20, abw, 50, String(ans), {colour:[70,50,110], textColour:"#fff", fontSize:mob2?18:22, action:()=>{
           finishChallenge(activeChallenge.correctIdx === i);
         }});
-        drawBtn(buttons[buttons.length-1]);
-        drawText(String(ans), bx+80, H/2+38, {size:22, colour:"#fff", bold:true});
-        drawText(`[${i+1}]  ${arrows[i]}`, bx+80, H/2+60, {size:12, colour:"#aaa"});
       });
 
       drawText("Click, press 1/2/3, or use arrow keys!", W/2, H/2+95, {size:16, colour:"#ccc"});
@@ -1658,14 +1659,10 @@ canvas.addEventListener("touchstart", e => {
     }
   }
 
-  // Check challenge answer buttons
+  // Challenge answer buttons handled by general button loop below
   if (state === "challenge" && activeChallenge) {
-    for (let i = 0; i < 3; i++) {
-      const bx = W/2 - 270 + i*180;
-      if (mx >= bx && mx <= bx+160 && my >= H/2+20 && my <= H/2+75) {
-        finishChallenge(activeChallenge.correctIdx === i);
-        return;
-      }
+    // Fall through to button check
+    if (false) {
     }
     return;
   }
