@@ -1372,13 +1372,14 @@ function drawPlaying() {
 
   // HUD
   const mob = W < 700;
-  btn(W-80, 5, 72, 30, "< Exit", {colour:[140,50,50], textColour:"#fff", fontSize:14, action:()=>{state="customise";}});
   drawText(`Lv ${level}`, 15, 18, {size:mob?16:22, colour:"#ffd700", bold:true, align:"left"});
   const mins = timeElapsed/60|0, secs = timeElapsed%60;
   const timeStr = mins > 0 ? `${mins}:${secs<10?"0":""}${secs.toFixed(2)}` : `${secs.toFixed(2)}s`;
   drawText(timeStr, W/2, 18, {size:mob?22:30, colour:"#ffe064", bold:true, font:"Courier New"});
   drawText(`Moves: ${moves}`, 15, mob?38:50, {size:mob?13:16, colour:"#fff", align:"left"});
-  drawText(activeUser, W-80, mob?38:50, {size:mob?12:16, colour:"#add8e6", bold:true, align:"right"});
+  drawText(activeUser, mob?W-90:W-80, mob?18:20, {size:mob?12:16, colour:"#add8e6", bold:true, align:"right"});
+  // Exit button - below HUD, clearly visible
+  btn(mob?W-75:W-80, mob?38:48, mob?70:72, mob?24:28, "< Exit", {colour:[160,40,40], textColour:"#fff", fontSize:mob?12:13, action:()=>{state="customise";}});
 
   drawMaze();
   // Dragon
