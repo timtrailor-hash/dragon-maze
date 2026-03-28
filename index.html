@@ -8,7 +8,7 @@
 <title>Dragon Maze Adventure!</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
-html, body { background: #231234; font-family: Arial, sans-serif; color: #fff; overflow: hidden; touch-action: none; -webkit-user-select: none; user-select: none; height: 100%; }
+html, body { background: #231234; font-family: Arial, sans-serif; color: #fff; overflow: hidden; -webkit-user-select: none; user-select: none; height: 100%; }
 canvas { display: block; margin: 0 auto; }
 #mobileInput { position: absolute; left: -9999px; top: 0; opacity: 0; font-size: 16px; }
 </style>
@@ -1388,10 +1388,12 @@ function startLevelFn() {
   const [w2,h2] = levelDims(level);
   maze = generateMaze(w2, h2);
   endX = w2-1; endY = h2-1;
-  const maxW = W-60, maxH = H-100;
+  const dpadSpace = isMobile ? 140 : 0;
+  const maxW = W - 40 - dpadSpace, maxH = H - 120;
   cellSize = Math.min(maxW/w2, maxH/h2, 50);
-  mazeOX = (W - w2*cellSize)/2;
-  mazeOY = 70 + (H-70 - h2*cellSize)/2;
+  const mazeW = w2 * cellSize, mazeH = h2 * cellSize;
+  mazeOX = (W - dpadSpace - mazeW) / 2;
+  mazeOY = 70 + (H - 70 - dpadSpace/2 - mazeH) / 2;
   dragon = {gx:0, gy:0, dir:"right"};
   moves = 0; timeElapsed = 0; timerPaused = false;
   challengeSquares = {};
@@ -1551,10 +1553,9 @@ canvas.addEventListener("touchstart", e => {
 
   // Check D-pad (only while playing and no challenge active)
   if ((state === "playing") && !activeChallenge && isMobile) {
-    const dpadCx = W - 90, dpadCy = H - 110, dpadR = 25;
-    const ddx = mx - dpadCx, ddy = my - dpadCy;
-    // Use simple quadrant detection — much more responsive
-    if (Math.abs(ddx) + Math.abs(ddy) < 120) {
+    const dp = getDpadPos();
+    const ddx = mx - dp.cx, ddy = my - dp.cy;
+    if (Math.abs(ddx) + Math.abs(ddy) < dp.r * 3) {
       if (Math.abs(ddy) > Math.abs(ddx)) {
         ddy < 0 ? tryMove(0,-1,"N") : tryMove(0,1,"S");
       } else {
@@ -1607,8 +1608,8 @@ canvas.addEventListener("touchend", e2 => {
   }
 }, {passive: true});
 
-// Prevent default touch scroll but allow pinch-to-zoom (2+ fingers)
-document.addEventListener("touchmove", e => {
+// Prevent single-finger scroll on canvas only (allow pinch-to-zoom everywhere)
+canvas.addEventListener("touchmove", e => {
   if (e.touches.length < 2) e.preventDefault();
 }, {passive: false});
 
@@ -1638,28 +1639,26 @@ function focusMobileInput(prefill) {
 }
 
 // Draw D-pad on screen during gameplay (mobile only)
+function getDpadPos() {
+  return { cx: W - 70, cy: H - 80, r: 28 };
+}
 function drawDpad() {
   if (!isMobile) return;
-  const cx2 = W - 90, cy2 = H - 110, r = 40;
-  const alpha = 0.45;
+  const {cx: cx2, cy: cy2, r} = getDpadPos();
+  const alpha = 0.5;
 
-  // Background circle
   ctx.fillStyle = `rgba(60,40,80,${alpha})`;
-  ctx.beginPath(); ctx.arc(cx2, cy2, r*2.8, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx2, cy2, r*2.4, 0, Math.PI*2); ctx.fill();
 
-  // Up
   ctx.fillStyle = `rgba(200,180,255,${alpha+0.15})`;
-  ctx.beginPath(); ctx.moveTo(cx2, cy2-r*2.2); ctx.lineTo(cx2-r*0.9, cy2-r*0.6); ctx.lineTo(cx2+r*0.9, cy2-r*0.6); ctx.fill();
+  // Up
+  ctx.beginPath(); ctx.moveTo(cx2, cy2-r*2); ctx.lineTo(cx2-r*0.7, cy2-r*0.5); ctx.lineTo(cx2+r*0.7, cy2-r*0.5); ctx.fill();
   // Down
-  ctx.beginPath(); ctx.moveTo(cx2, cy2+r*2.2); ctx.lineTo(cx2-r*0.9, cy2+r*0.6); ctx.lineTo(cx2+r*0.9, cy2+r*0.6); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(cx2, cy2+r*2); ctx.lineTo(cx2-r*0.7, cy2+r*0.5); ctx.lineTo(cx2+r*0.7, cy2+r*0.5); ctx.fill();
   // Left
-  ctx.beginPath(); ctx.moveTo(cx2-r*2.2, cy2); ctx.lineTo(cx2-r*0.6, cy2-r*0.9); ctx.lineTo(cx2-r*0.6, cy2+r*0.9); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(cx2-r*2, cy2); ctx.lineTo(cx2-r*0.5, cy2-r*0.7); ctx.lineTo(cx2-r*0.5, cy2+r*0.7); ctx.fill();
   // Right
-  ctx.beginPath(); ctx.moveTo(cx2+r*2.2, cy2); ctx.lineTo(cx2+r*0.6, cy2-r*0.9); ctx.lineTo(cx2+r*0.6, cy2+r*0.9); ctx.fill();
-
-  // Centre dot
-  ctx.fillStyle = `rgba(150,130,200,0.3)`;
-  ctx.beginPath(); ctx.arc(cx2, cy2, r*0.35, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(cx2+r*2, cy2); ctx.lineTo(cx2+r*0.5, cy2-r*0.7); ctx.lineTo(cx2+r*0.5, cy2+r*0.7); ctx.fill();
 }
 
 // ─── GAME LOOP ───
