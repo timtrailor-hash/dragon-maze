@@ -1062,157 +1062,235 @@ function drawNewUser() {
 function drawCustomise() {
   clearButtons();
   ctx.fillStyle = "#231234"; ctx.fillRect(0,0,W,H);
-  const scale = Math.min(W/1200, H/800);
-  const S = v => v * scale;
+  const mob = W < 700; // mobile portrait
+  const t = Date.now()/1000;
 
-  // Top bar
-  ctx.fillStyle = "#2d1941"; ctx.fillRect(0, 0, W, S(60));
-  drawText("Dragon Maze Adventure!", S(20), S(30), {size:S(32), colour:"#ffd700", bold:true, align:"left"});
-  drawText(`Player: ${activeUser}`, W-S(370), S(28), {size:S(20), colour:"#add8e6", bold:true, align:"left"});
-  const chgBtn = btn(W-S(175), S(14), S(155), S(32), "Change Player", {colour:[120,80,160], textColour:"#fff", fontSize:S(16)});
+  if (mob) {
+    // ═══ MOBILE VERTICAL LAYOUT ═══
+    const pad = 10, bw = W - pad*2, bh = 36, gap = 4, fs = 14;
+    let y = 8;
 
-  // Left panel
-  ctx.fillStyle = "rgba(50,28,72,0.9)"; roundRect(S(20), S(68), S(500), S(575), 8); ctx.fill();
+    // Title + player
+    drawText("Dragon Maze!", pad, y+12, {size:18, colour:"#ffd700", bold:true, align:"left"});
+    drawText(activeUser, W-80, y+12, {size:14, colour:"#add8e6", bold:true});
+    btn(W-60, y, 55, 24, "Switch", {colour:[120,80,160], textColour:"#fff", fontSize:11, action:()=>{state="change_user";}});
+    y += 30;
 
-  // Colour
-  drawText("Colour:", S(45), S(85), {size:S(20), colour:"#fff", bold:true, align:"left"});
-  const colNames = Object.keys(DRAGON_COLOURS);
-  colNames.forEach((name, i) => {
-    const row = i>>2, col = i&3;
-    const b = btn(S(45)+col*S(112), S(100)+row*S(38), S(105), S(32), name,
-      {colour:DRAGON_COLOURS[name], textColour:["Black","Blue","Purple"].includes(name)?"#fff":"#000",
-       selected:name===selectedColour, fontSize:S(15), action:()=>{selectedColour=name;saveUserPrefs();}});
-  });
+    // Dragon preview
+    ctx.fillStyle = "rgba(50,28,72,0.8)"; roundRect(pad, y, bw, 120, 6); ctx.fill();
+    const prevSz = SIZES[selectedSize] * 2.5;
+    drawDragon(W/2, y+60, prevSz, "right", t, DRAGON_COLOURS[selectedColour], EYE_STYLES[selectedEyes], hasWings);
+    btn(pad, y, bw, 120, "", {alpha:0, action:()=>{fullscreenPreview=true;}});
+    y += 126;
 
-  // Eyes
-  drawText("Eyes:", S(45), S(195), {size:S(20), colour:"#fff", bold:true, align:"left"});
-  Object.keys(EYE_STYLES).forEach((name, i) => {
-    const row = i/3|0, col = i%3;
-    btn(S(45)+col*S(152), S(212)+row*S(38), S(145), S(32), name,
-      {selected:name===selectedEyes, fontSize:S(14), action:()=>{selectedEyes=name;saveUserPrefs();}});
-  });
-
-  // Size
-  drawText("Size:", S(45), S(305), {size:S(20), colour:"#fff", bold:true, align:"left"});
-  Object.keys(SIZES).forEach((name, i) => {
-    btn(S(45)+i*S(120), S(320), S(112), S(32), name,
-      {selected:name===selectedSize, fontSize:S(15), action:()=>{selectedSize=name;saveUserPrefs();}});
-  });
-
-  // Wings
-  btn(S(45), S(370), S(145), S(30), `Wings: ${hasWings?"ON":"OFF"}`,
-    {colour:hasWings?[100,200,100]:[200,100,100], textColour:"#fff", fontSize:S(14),
-     action:()=>{hasWings=!hasWings;saveUserPrefs();}});
-
-  // Challenges
-  btn(S(200), S(370), S(145), S(30), `Challenges: ${challengesEnabled?"ON":"OFF"}`,
-    {colour:challengesEnabled?[100,200,100]:[200,100,100], textColour:"#fff", fontSize:S(14),
-     action:()=>{challengesEnabled=!challengesEnabled;}});
-
-  if (challengesEnabled) {
-    btn(S(360), S(370), S(65), S(30), challengeDensity,
-      {colour:[160,160,160], fontSize:S(13), action:()=>{
-        const d=["Few","Some","Many"]; challengeDensity=d[(d.indexOf(challengeDensity)+1)%3];}});
-    btn(S(432), S(370), S(55), S(30), `${challengeTimeLimit}s`,
-      {colour:[160,160,160], fontSize:S(13), action:()=>{
-        const t=[10,20,30]; challengeTimeLimit=t[(t.indexOf(challengeTimeLimit)+1)%3];}});
-
-    drawText("Tables:", S(45), S(410), {size:S(12), colour:"#ccc", bold:true, align:"left"});
-    for (let n = 2; n <= 12; n++) {
-      const i = n-2, row = i/6|0, col = i%6;
-      const on = challengeTables.has(n);
-      btn(S(45)+col*S(78), S(420)+row*S(28), S(72), S(24), `${n}x ${on?"ON":"OFF"}`,
-        {colour:on?[60,160,60]:[180,60,60], textColour:"#fff", fontSize:S(11),
-         action:()=>{if(on&&challengeTables.size>1)challengeTables.delete(n);else challengeTables.add(n);}});
-    }
-  }
-
-  // Play button + level
-  btn(S(45), S(challengesEnabled?485:415), S(290), S(42), "START ADVENTURE!",
-    {colour:[40,160,40], textColour:"#fff", fontSize:S(20), bold:true,
-     action:()=>{ level=startLevel; startLevelFn(); }});
-
-  const playY = S(challengesEnabled?492:422);
-  btn(S(345), playY, S(30), S(28), "-", {fontSize:S(16), action:()=>{startLevel=Math.max(1,startLevel-1);}});
-  drawText(`Level: ${startLevel}`, S(410), playY+S(14), {size:S(16), colour:"#fff", bold:true});
-  btn(S(465), playY, S(30), S(28), "+", {fontSize:S(16), action:()=>{startLevel=Math.min(10,startLevel+1);}});
-  const [lw,lh] = levelDims(startLevel);
-  drawText(`(${lw}x${lh})`, S(410), playY+S(34), {size:S(12), colour:"#888"});
-
-  // Right panel — dragon on top, leaderboard below
-  const rpX = S(535), rpW = S(645);
-  ctx.fillStyle = "rgba(50,28,72,0.9)"; roundRect(rpX, S(68), rpW, S(575), 8); ctx.fill();
-  const rpCx = rpX + rpW/2;
-
-  // Dragon preview (top half)
-  drawText(`${activeUser}'s Dragon`, rpCx, S(85), {size:S(18), colour:"#ccc", bold:true});
-  const prevScale = SIZES[selectedSize] * S(4);
-  drawDragon(rpCx, S(210), prevScale, "right", Date.now()/1000,
-    DRAGON_COLOURS[selectedColour], EYE_STYLES[selectedEyes], hasWings);
-  drawText("Click dragon for full view", rpCx, S(330), {size:S(11), colour:"#666"});
-  btn(rpX, S(90), rpW, S(240), "", {alpha:0, action:()=>{fullscreenPreview=true;}});
-
-  // Leaderboard (bottom half)
-  ctx.strokeStyle = "rgba(80,50,110,0.6)"; ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(rpX+S(15), S(345)); ctx.lineTo(rpX+rpW-S(15), S(345)); ctx.stroke();
-  drawText("Leaderboard", rpCx, S(360), {size:S(16), colour:"#add8e6", bold:true});
-
-  if (lbExpandedLevel === null) {
-    for (let lv = 1; lv <= 10; lv++) {
-      const [w2,h2] = levelDims(lv);
-      const bk2 = boardKey(w2,h2);
-      const entries = leaderboard[bk2] || [];
-      const ry = S(375) + (lv-1)*S(22);
-      drawText(`Lv ${lv} (${w2}x${h2})`, rpX+S(15), ry+S(9), {size:S(11), colour:"#b4a0dc", bold:true, align:"left"});
-      if (entries.length) {
-        drawText(`${entries[0].name.slice(0,8)}  ${entries[0].time.toFixed(1)}s`, rpX+S(180), ry+S(9),
-          {size:S(11), colour:lv<=3?"#ffd700":"#fff", align:"left"});
-      } else {
-        drawText("-", rpX+S(220), ry+S(9), {size:S(11), colour:"#666"});
-      }
-      btn(rpX, ry, rpW, S(21), "", {alpha:0, action:(function(l){return ()=>{lbExpandedLevel=l;};})(lv)});
-      ctx.strokeStyle = "rgba(80,50,110,0.3)"; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(rpX+S(15),ry+S(20)); ctx.lineTo(rpX+rpW-S(15),ry+S(20)); ctx.stroke();
-    }
-    drawText("Click a level for top 10", rpCx, S(605), {size:S(10), colour:"#666"});
-  } else {
-    const lv2 = lbExpandedLevel;
-    const [w2,h2] = levelDims(lv2);
-    const bk2 = boardKey(w2,h2);
-    drawText(`Level ${lv2} (${w2}x${h2})`, rpCx, S(385), {size:S(15), colour:"#ffd700", bold:true});
-    const entries = leaderboard[bk2] || [];
-    const cols = [rpX+S(15), rpX+S(40), rpX+S(170), rpX+S(230)];
-    let ey = S(405);
-    ["#","Name","Time","Mv"].forEach((h2,i)=>drawText(h2,cols[i],ey,{size:S(11),colour:"#b4a0dc",bold:true,align:"left"}));
-    ey += S(17);
-    entries.slice(0,10).forEach((e,i) => {
-      const c = i===0?"#ffd700":i<3?"#fff":"#ccc";
-      drawText(`${i+1}`,cols[0],ey,{size:S(11),colour:c,align:"left"});
-      drawText(e.name.slice(0,10),cols[1],ey,{size:S(11),colour:c,align:"left"});
-      drawText(`${e.time.toFixed(1)}s`,cols[2],ey,{size:S(11),colour:c,align:"left"});
-      drawText(`${e.moves}`,cols[3],ey,{size:S(11),colour:c,align:"left"});
-      ey += S(17);
+    // Colour (2 rows of 4)
+    drawText("Colour:", pad+4, y+8, {size:12, colour:"#ccc", bold:true, align:"left"});
+    y += 18;
+    const cw = (bw - gap*3) / 4;
+    Object.keys(DRAGON_COLOURS).forEach((name, i) => {
+      const row = i>>2, col = i&3;
+      btn(pad + col*(cw+gap), y + row*(bh-2+gap), cw, bh-2, name,
+        {colour:DRAGON_COLOURS[name], textColour:["Black","Blue","Purple"].includes(name)?"#fff":"#000",
+         selected:name===selectedColour, fontSize:12, action:()=>{selectedColour=name;saveUserPrefs();}});
     });
-    if (!entries.length) drawText("No scores yet",rpCx,S(430),{size:S(12),colour:"#666"});
-    btn(rpX+S(15), S(595), S(120), S(20), "< Back", {fontSize:S(11), colour:[80,50,120], textColour:"#add8e6", action:()=>{lbExpandedLevel=null;}});
+    y += (bh-2+gap)*2 + 4;
+
+    // Eyes (2 rows of 3)
+    drawText("Eyes:", pad+4, y+8, {size:12, colour:"#ccc", bold:true, align:"left"});
+    y += 18;
+    const ew = (bw - gap*2) / 3;
+    Object.keys(EYE_STYLES).forEach((name, i) => {
+      const row = i/3|0, col = i%3;
+      btn(pad + col*(ew+gap), y + row*(bh-4+gap), ew, bh-4, name,
+        {selected:name===selectedEyes, fontSize:11, action:()=>{selectedEyes=name;saveUserPrefs();}});
+    });
+    y += (bh-4+gap)*2 + 4;
+
+    // Size + Wings (one row)
+    const sw = (bw - gap*4) / 5;
+    Object.keys(SIZES).forEach((name, i) => {
+      btn(pad + i*(sw+gap), y, sw, bh-4, name,
+        {selected:name===selectedSize, fontSize:12, action:()=>{selectedSize=name;saveUserPrefs();}});
+    });
+    btn(pad + 3*(sw+gap), y, sw, bh-4, hasWings?"Wings":"No Wing",
+      {colour:hasWings?[60,160,60]:[180,60,60], textColour:"#fff", fontSize:11,
+       action:()=>{hasWings=!hasWings;saveUserPrefs();}});
+    btn(pad + 4*(sw+gap), y, sw, bh-4, challengesEnabled?"Quiz ON":"Quiz",
+      {colour:challengesEnabled?[60,160,60]:[180,60,60], textColour:"#fff", fontSize:11,
+       action:()=>{challengesEnabled=!challengesEnabled;}});
+    y += bh + 2;
+
+    // Challenge config (if enabled)
+    if (challengesEnabled) {
+      const tw = (bw - gap*5) / 6;
+      for (let n = 2; n <= 12; n++) {
+        const i = n-2, row = i/6|0, col = i%6;
+        const on = challengeTables.has(n);
+        btn(pad + col*(tw+gap), y + row*(22+gap), tw, 22, `${n}x`,
+          {colour:on?[50,140,50]:[160,50,50], textColour:"#fff", fontSize:10,
+           action:()=>{if(on&&challengeTables.size>1)challengeTables.delete(n);else challengeTables.add(n);}});
+      }
+      y += (22+gap)*2 + 2;
+      // Density + time
+      btn(pad, y, 60, 24, challengeDensity, {colour:[130,130,130], fontSize:11,
+        action:()=>{const d2=["Few","Some","Many"]; challengeDensity=d2[(d2.indexOf(challengeDensity)+1)%3];}});
+      btn(pad+65, y, 50, 24, `${challengeTimeLimit}s`, {colour:[130,130,130], fontSize:11,
+        action:()=>{const t2=[10,20,30]; challengeTimeLimit=t2[(t2.indexOf(challengeTimeLimit)+1)%3];}});
+      y += 30;
+    }
+
+    // START + Level
+    btn(pad, y, bw*0.6, 40, "START!", {colour:[40,160,40], textColour:"#fff", fontSize:18, action:()=>{level=startLevel;startLevelFn();}});
+    btn(pad+bw*0.62, y, 28, 28, "-", {fontSize:14, action:()=>{startLevel=Math.max(1,startLevel-1);}});
+    drawText(`Lv ${startLevel}`, pad+bw*0.78, y+14, {size:13, colour:"#fff", bold:true});
+    btn(pad+bw*0.88, y, 28, 28, "+", {fontSize:14, action:()=>{startLevel=Math.min(10,startLevel+1);}});
+    y += 48;
+
+    // Leaderboard
+    drawText("Leaderboard", W/2, y+10, {size:14, colour:"#add8e6", bold:true});
+    y += 24;
+    if (lbExpandedLevel === null) {
+      for (let lv = 1; lv <= 10; lv++) {
+        const [w2,h2] = levelDims(lv);
+        const entries = leaderboard[boardKey(w2,h2)] || [];
+        drawText(`Lv${lv}`, pad+4, y+8, {size:11, colour:"#b4a0dc", bold:true, align:"left"});
+        drawText(entries.length ? `${entries[0].name.slice(0,6)} ${entries[0].time.toFixed(1)}s` : "-",
+          pad+50, y+8, {size:11, colour:entries.length?(lv<=3?"#ffd700":"#fff"):"#666", align:"left"});
+        btn(pad, y, bw, 16, "", {alpha:0, action:(function(l){return ()=>{lbExpandedLevel=l;};})(lv)});
+        y += 18;
+      }
+    } else {
+      const lv2 = lbExpandedLevel, [w2,h2] = levelDims(lv2);
+      drawText(`Level ${lv2} (${w2}x${h2})`, W/2, y+8, {size:13, colour:"#ffd700", bold:true});
+      y += 20;
+      const entries = leaderboard[boardKey(w2,h2)] || [];
+      entries.slice(0,10).forEach((e,i) => {
+        const c2 = i===0?"#ffd700":i<3?"#fff":"#ccc";
+        drawText(`${i+1}. ${e.name.slice(0,8)}  ${e.time.toFixed(1)}s`, pad+10, y+8, {size:11, colour:c2, align:"left"});
+        y += 16;
+      });
+      if (!entries.length) { drawText("No scores",W/2,y+10,{size:12,colour:"#666"}); y+=20; }
+      btn(pad, y, 80, 20, "< Back", {fontSize:11, colour:[80,50,120], textColour:"#add8e6", action:()=>{lbExpandedLevel=null;}});
+    }
+
+  } else {
+    // ═══ DESKTOP LAYOUT (unchanged) ═══
+    const scale = Math.min(W/1200, H/800);
+    const S = v => v * scale;
+
+    ctx.fillStyle = "#2d1941"; ctx.fillRect(0, 0, W, S(60));
+    drawText("Dragon Maze Adventure!", S(20), S(30), {size:S(32), colour:"#ffd700", bold:true, align:"left"});
+    drawText(`Player: ${activeUser}`, W-S(370), S(28), {size:S(20), colour:"#add8e6", bold:true, align:"left"});
+    btn(W-S(175), S(14), S(155), S(32), "Change Player", {colour:[120,80,160], textColour:"#fff", fontSize:S(16), action:()=>{state="change_user";}});
+
+    ctx.fillStyle = "rgba(50,28,72,0.9)"; roundRect(S(20), S(68), S(500), S(580), 8); ctx.fill();
+
+    drawText("Colour:", S(45), S(85), {size:S(20), colour:"#fff", bold:true, align:"left"});
+    Object.keys(DRAGON_COLOURS).forEach((name, i) => {
+      const row = i>>2, col = i&3;
+      btn(S(45)+col*S(112), S(100)+row*S(38), S(105), S(32), name,
+        {colour:DRAGON_COLOURS[name], textColour:["Black","Blue","Purple"].includes(name)?"#fff":"#000",
+         selected:name===selectedColour, fontSize:S(15), action:()=>{selectedColour=name;saveUserPrefs();}});
+    });
+
+    drawText("Eyes:", S(45), S(195), {size:S(20), colour:"#fff", bold:true, align:"left"});
+    Object.keys(EYE_STYLES).forEach((name, i) => {
+      const row = i/3|0, col = i%3;
+      btn(S(45)+col*S(152), S(212)+row*S(38), S(145), S(32), name,
+        {selected:name===selectedEyes, fontSize:S(14), action:()=>{selectedEyes=name;saveUserPrefs();}});
+    });
+
+    drawText("Size:", S(45), S(305), {size:S(20), colour:"#fff", bold:true, align:"left"});
+    Object.keys(SIZES).forEach((name, i) => {
+      btn(S(45)+i*S(120), S(320), S(112), S(32), name,
+        {selected:name===selectedSize, fontSize:S(15), action:()=>{selectedSize=name;saveUserPrefs();}});
+    });
+
+    btn(S(45), S(370), S(145), S(30), `Wings: ${hasWings?"ON":"OFF"}`,
+      {colour:hasWings?[100,200,100]:[200,100,100], textColour:"#fff", fontSize:S(14), action:()=>{hasWings=!hasWings;saveUserPrefs();}});
+    btn(S(200), S(370), S(145), S(30), `Challenges: ${challengesEnabled?"ON":"OFF"}`,
+      {colour:challengesEnabled?[100,200,100]:[200,100,100], textColour:"#fff", fontSize:S(14), action:()=>{challengesEnabled=!challengesEnabled;}});
+
+    if (challengesEnabled) {
+      btn(S(360), S(370), S(65), S(30), challengeDensity, {colour:[160,160,160], fontSize:S(13),
+        action:()=>{const d2=["Few","Some","Many"]; challengeDensity=d2[(d2.indexOf(challengeDensity)+1)%3];}});
+      btn(S(432), S(370), S(55), S(30), `${challengeTimeLimit}s`, {colour:[160,160,160], fontSize:S(13),
+        action:()=>{const t2=[10,20,30]; challengeTimeLimit=t2[(t2.indexOf(challengeTimeLimit)+1)%3];}});
+      drawText("Tables:", S(45), S(410), {size:S(12), colour:"#ccc", bold:true, align:"left"});
+      for (let n = 2; n <= 12; n++) {
+        const i = n-2, row = i/6|0, col = i%6;
+        const on = challengeTables.has(n);
+        btn(S(45)+col*S(78), S(420)+row*S(28), S(72), S(24), `${n}x ${on?"ON":"OFF"}`,
+          {colour:on?[60,160,60]:[180,60,60], textColour:"#fff", fontSize:S(11),
+           action:()=>{if(on&&challengeTables.size>1)challengeTables.delete(n);else challengeTables.add(n);}});
+      }
+    }
+
+    btn(S(45), S(challengesEnabled?485:415), S(290), S(42), "START ADVENTURE!",
+      {colour:[40,160,40], textColour:"#fff", fontSize:S(20), action:()=>{level=startLevel;startLevelFn();}});
+    const playY = S(challengesEnabled?492:422);
+    btn(S(345), playY, S(30), S(28), "-", {fontSize:S(16), action:()=>{startLevel=Math.max(1,startLevel-1);}});
+    drawText(`Level: ${startLevel}`, S(410), playY+S(14), {size:S(16), colour:"#fff", bold:true});
+    btn(S(465), playY, S(30), S(28), "+", {fontSize:S(16), action:()=>{startLevel=Math.min(10,startLevel+1);}});
+    const [lw2,lh2] = levelDims(startLevel);
+    drawText(`(${lw2}x${lh2})`, S(410), playY+S(34), {size:S(12), colour:"#888"});
+
+    // Right panel
+    const rpX = S(535), rpW = S(645);
+    ctx.fillStyle = "rgba(50,28,72,0.9)"; roundRect(rpX, S(68), rpW, S(575), 8); ctx.fill();
+    const rpCx = rpX + rpW/2;
+    drawText(`${activeUser}'s Dragon`, rpCx, S(85), {size:S(18), colour:"#ccc", bold:true});
+    const prevScale = SIZES[selectedSize] * S(4);
+    drawDragon(rpCx, S(210), prevScale, "right", t, DRAGON_COLOURS[selectedColour], EYE_STYLES[selectedEyes], hasWings);
+    drawText("Click dragon for full view", rpCx, S(330), {size:S(11), colour:"#666"});
+    btn(rpX, S(90), rpW, S(240), "", {alpha:0, action:()=>{fullscreenPreview=true;}});
+
+    ctx.strokeStyle = "rgba(80,50,110,0.6)"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(rpX+S(15), S(345)); ctx.lineTo(rpX+rpW-S(15), S(345)); ctx.stroke();
+    drawText("Leaderboard", rpCx, S(360), {size:S(16), colour:"#add8e6", bold:true});
+    if (lbExpandedLevel === null) {
+      for (let lv = 1; lv <= 10; lv++) {
+        const [w2,h2] = levelDims(lv);
+        const entries = leaderboard[boardKey(w2,h2)] || [];
+        const ry = S(375) + (lv-1)*S(22);
+        drawText(`Lv ${lv} (${w2}x${h2})`, rpX+S(15), ry+S(9), {size:S(11), colour:"#b4a0dc", bold:true, align:"left"});
+        if (entries.length) drawText(`${entries[0].name.slice(0,8)}  ${entries[0].time.toFixed(1)}s`, rpX+S(180), ry+S(9), {size:S(11), colour:lv<=3?"#ffd700":"#fff", align:"left"});
+        else drawText("-", rpX+S(220), ry+S(9), {size:S(11), colour:"#666"});
+        btn(rpX, ry, rpW, S(21), "", {alpha:0, action:(function(l){return ()=>{lbExpandedLevel=l;};})(lv)});
+        ctx.strokeStyle = "rgba(80,50,110,0.3)"; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(rpX+S(15),ry+S(20)); ctx.lineTo(rpX+rpW-S(15),ry+S(20)); ctx.stroke();
+      }
+      drawText("Click a level for top 10", rpCx, S(605), {size:S(10), colour:"#666"});
+    } else {
+      const lv2 = lbExpandedLevel, [w2,h2] = levelDims(lv2);
+      drawText(`Level ${lv2} (${w2}x${h2})`, rpCx, S(385), {size:S(15), colour:"#ffd700", bold:true});
+      const entries = leaderboard[boardKey(w2,h2)] || [];
+      const cols2 = [rpX+S(15), rpX+S(40), rpX+S(170), rpX+S(230)];
+      let ey2 = S(405);
+      ["#","Name","Time","Mv"].forEach((h3,i)=>drawText(h3,cols2[i],ey2,{size:S(11),colour:"#b4a0dc",bold:true,align:"left"}));
+      ey2 += S(17);
+      entries.slice(0,10).forEach((e,i) => {
+        const c2 = i===0?"#ffd700":i<3?"#fff":"#ccc";
+        [String(i+1),e.name.slice(0,10),e.time.toFixed(1)+"s",String(e.moves)].forEach((txt,j)=>drawText(txt,cols2[j],ey2,{size:S(11),colour:c2,align:"left"}));
+        ey2 += S(17);
+      });
+      if (!entries.length) drawText("No scores yet",rpCx,S(430),{size:S(12),colour:"#666"});
+      btn(rpX+S(15), S(595), S(120), S(20), "< Back", {fontSize:S(11), colour:[80,50,120], textColour:"#add8e6", action:()=>{lbExpandedLevel=null;}});
+    }
   }
 
-  // Fullscreen preview
+  // Fullscreen preview (both mobile and desktop)
   if (fullscreenPreview) {
     ctx.fillStyle = "rgba(15,8,25,0.92)"; ctx.fillRect(0,0,W,H);
-    drawText(`${activeUser}'s Dragon!`, W/2, 40, {size:36, colour:"#ffd700", bold:true});
-    const fsScale = SIZES[selectedSize] * Math.min(W,H)*0.008;
-    drawDragon(W/2, H/2-20, fsScale, "right", Date.now()/1000,
-      DRAGON_COLOURS[selectedColour], EYE_STYLES[selectedEyes], hasWings);
-    drawText("Click anywhere to close", W/2, H-50, {size:20, colour:"#ccc"});
+    drawText(`${activeUser}'s Dragon!`, W/2, 40, {size:mob?24:36, colour:"#ffd700", bold:true});
+    const fsScale = SIZES[selectedSize] * Math.min(W,H)*(mob?0.012:0.008);
+    drawDragon(W/2, H/2-20, fsScale, "right", t, DRAGON_COLOURS[selectedColour], EYE_STYLES[selectedEyes], hasWings);
+    drawText("Tap to close", W/2, H-50, {size:mob?16:20, colour:"#ccc"});
     btn(0, 0, W, H, "", {alpha:0, action:()=>{fullscreenPreview=false;}});
   }
 
   drawCredit();
   buttons.forEach(drawBtn);
-  // Change player button needs to be on top
-  drawBtn(chgBtn);
-  chgBtn.action = ()=>{state="change_user";};
 }
 
 function drawChangeUser() {
@@ -1542,6 +1620,7 @@ const mobileInput = document.getElementById("mobileInput");
 
 // Touch → click (tap)
 canvas.addEventListener("touchstart", e => {
+  if (e.touches.length >= 2) return; // allow pinch-to-zoom
   e.preventDefault();
   const touch = e.touches[0];
   const rect = canvas.getBoundingClientRect();
