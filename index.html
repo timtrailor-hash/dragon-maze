@@ -1468,25 +1468,18 @@ function drawHowToPlay() {
     {t:"Swipe on mobile to move through the maze."},
     {t:"Race to reach the golden star as fast as you can!"},
     {t:""},
+    {t:"The Clock", h:true},
+    {t:"Everyone starts with 20 seconds on the clock."},
+    {t:"Your time goes up as you navigate the maze."},
+    {t:"The only way to reduce your time is by answering"},
+    {t:"maths challenges correctly!"},
+    {t:""},
     {t:"Maths Challenges", h:true},
     {t:"Golden ? squares trigger multiplication questions."},
-    {t:"Answer correctly to get time deducted from your score!"},
-    {t:"Wrong answers have no penalty."},
-    {t:"You have a time limit to answer (10s, 20s, or 30s)."},
-    {t:""},
-    {t:"Time Deductions", h:true},
-    {t:"Harder questions = bigger time bonus:"},
-    {t:"  7x and 8x tables = 2s base"},
-    {t:"  3x, 4x, 6x, 9x tables = 1s base"},
-    {t:"  2x, 5x, 10x tables = 0.5s base"},
-    {t:"  11x, 12x tables = 1.5s base"},
-    {t:"The deduction is the average of both numbers' tiers."},
-    {t:"E.g. 7 x 3 = average of 2s and 1s = 1.5s bonus!"},
-    {t:""},
-    {t:"Timer Settings", h:true},
-    {t:"10s timer = full bonus"},
-    {t:"20s timer = two-thirds bonus"},
-    {t:"30s timer = half bonus"},
+    {t:"Answer correctly to get time knocked off your score!"},
+    {t:"The harder the question, the more time you get off."},
+    {t:"The faster you answer, the bigger the bonus."},
+    {t:"Wrong answers have no penalty - just try your best!"},
     {t:""},
     {t:"Leaderboard", h:true},
     {t:"Your fastest time for each level is saved."},
@@ -1564,7 +1557,7 @@ function startLevelFn() {
   mazeOX = (W - dpadSpace - mazeW) / 2;
   mazeOY = 70 + (H - 70 - dpadSpace/2 - mazeH) / 2;
   dragon = {gx:0, gy:0, dir:"right"};
-  moves = 0; timeElapsed = 0; timerPaused = false;
+  moves = 0; timeElapsed = 20; timerPaused = false;
   challengeSquares = {};
   activeChallenge = null;
   if (challengesEnabled && challengeTables.size > 0) {
