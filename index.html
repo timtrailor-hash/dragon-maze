@@ -167,10 +167,60 @@ function generateMaze(w, h) {
   return { w, h, grid, canMove(x,y,d) { return x>=0 && x<w && y>=0 && y<h && !grid[y][x].has(d); } };
 }
 
-// ─── PROCEDURAL DRAGON RENDERER ───
-// High-quality dragon drawn with bezier curves, rendered at 4x on offscreen canvas then scaled down
+// ─── DRAGON SPRITE RENDERER ───
+const _spriteCache = {};
+function _loadSprite(key) {
+  if (_spriteCache[key]) return _spriteCache[key];
+  const img = new window.Image();
+  img.src = `sprites/dragon_${key}.png?v=6`;
+  _spriteCache[key] = img;
+  return img;
+}
+// Preload all sprites
+for (const name of Object.keys(DRAGON_COLOURS)) {
+  _loadSprite(`${name.toLowerCase()}_wings`);
+  _loadSprite(`${name.toLowerCase()}_nowings`);
+}
 
 function drawDragon(cx, cy, scale, dir, t, colourArr, eyeStyle, wings) {
+  const renderSize = Math.max(30, scale * 84);
+
+  // Find colour name
+  let colName = "red";
+  for (const [name, c] of Object.entries(DRAGON_COLOURS)) {
+    if (c[0] === colourArr[0] && c[1] === colourArr[1] && c[2] === colourArr[2]) {
+      colName = name.toLowerCase(); break;
+    }
+  }
+  const key = `${colName}_${wings ? "wings" : "nowings"}`;
+  const sprite = _loadSprite(key);
+
+  const bob = Math.sin(t * 3) * 2 * scale;
+
+  ctx.save();
+  if (dir === "left") {
+    ctx.translate(cx, cy + bob);
+    ctx.scale(-1, 1);
+    ctx.translate(-cx, -(cy + bob));
+  }
+
+  if (sprite.complete && sprite.naturalWidth > 0) {
+    // Draw sprite maintaining aspect ratio
+    const aspect = sprite.naturalWidth / sprite.naturalHeight;
+    let dw = renderSize, dh = renderSize / aspect;
+    if (dh > renderSize) { dh = renderSize; dw = renderSize * aspect; }
+    ctx.drawImage(sprite, cx - dw / 2, cy + bob - dh / 2, dw, dh);
+  } else {
+    // Fallback while loading
+    ctx.fillStyle = rgb(colourArr, 0.5);
+    ctx.beginPath(); ctx.arc(cx, cy + bob, renderSize / 4, 0, Math.PI * 2); ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+// Dead code kept for reference - old procedural renderer
+function _drawDragonProcedural(cx, cy, scale, dir, t, colourArr, eyeStyle, wings) {
   const renderSize = Math.max(30, scale * 84);
   const S = renderSize; // total size reference
   const s = S / 84;    // unit scale (so all coords are in ~84-unit space)
@@ -924,7 +974,7 @@ function drawDragon(cx, cy, scale, dir, t, colourArr, eyeStyle, wings) {
 
   ctx.drawImage(oc, finalX, finalY, ocW, ocH);
   ctx.restore();
-}
+} // end _drawDragonProcedural
 
 // ─── UI HELPERS ───
 let hoveredBtn = null;
