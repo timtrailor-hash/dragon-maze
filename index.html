@@ -1335,25 +1335,33 @@ function drawChangeUser() {
 function drawShowLeaderboard() {
   clearButtons();
   ctx.fillStyle = "#231234"; ctx.fillRect(0,0,W,H);
+  const mob = W < 700;
   const [w2,h2] = levelDims(level);
-  drawText(`Level ${level} - ${w2}x${h2} Maze`, W/2, 40, {size:34, colour:"#ffd700", bold:true});
+
+  btn(10, 10, mob?70:90, mob?28:32, "< Menu", {colour:[80,50,120], textColour:"#add8e6", fontSize:mob?12:14, action:()=>{state="customise";}});
+
+  drawText(`Level ${level} - ${w2}x${h2} Maze`, W/2, mob?55:50, {size:mob?24:34, colour:"#ffd700", bold:true});
   const bk = boardKey(w2,h2);
   const entries = leaderboard[bk] || [];
   if (entries.length) {
-    drawText("Leaderboard - Fastest Times", W/2, 90, {size:22, colour:"#add8e6", bold:true});
-    let y = 130;
+    drawText("Leaderboard", W/2, mob?90:100, {size:mob?18:22, colour:"#add8e6", bold:true});
+    let y = mob ? 120 : 140;
+    const nameX = mob ? 20 : W/2-100;
+    const timeX = mob ? W-110 : W/2+100;
+    const moveX = mob ? W-45 : W/2+190;
+    const fs = mob ? 15 : 18;
+    const lh = mob ? 26 : 30;
     entries.slice(0,10).forEach((e,i)=>{
       const c = i===0?"#ffd700":i<3?"#fff":"#ccc";
-      drawText(`${i+1}. ${e.name}`, W/2-80, y, {size:18, colour:c, bold:true, align:"left"});
-      drawText(`${e.time.toFixed(1)}s`, W/2+120, y, {size:18, colour:c, align:"left"});
-      drawText(`${e.moves} moves`, W/2+200, y, {size:18, colour:c, align:"left"});
-      y += 28;
+      drawText(`${i+1}. ${e.name.slice(0,10)}`, nameX, y, {size:fs, colour:c, bold:true, align:"left"});
+      drawText(`${e.time.toFixed(1)}s`, timeX, y, {size:fs, colour:c, align:"right"});
+      drawText(`${e.moves}`, moveX, y, {size:fs-2, colour:c, align:"right"});
+      y += lh;
     });
   } else {
-    drawText("No scores yet - be the first!", W/2, 200, {size:22, colour:"#ccc"});
+    drawText("No scores yet - be the first!", W/2, mob?150:200, {size:mob?18:22, colour:"#ccc"});
   }
-  btn(W/2-100, H-80, 200, 40, "Start!", {colour:[40,160,40], textColour:"#fff", fontSize:20, action:()=>{state="playing";}});
-  btn(10, 10, 80, 30, "< Menu", {colour:[80,50,120], textColour:"#add8e6", fontSize:13, action:()=>{state="customise";}});
+  btn(W/2-100, H-90, 200, 46, "START!", {colour:[40,160,40], textColour:"#fff", fontSize:22, action:()=>{state="playing";}});
   drawCredit();
   buttons.forEach(drawBtn);
 }
@@ -1363,13 +1371,14 @@ function drawPlaying() {
   ctx.fillStyle = "#231234"; ctx.fillRect(0,0,W,H);
 
   // HUD
-  btn(W-75, 8, 65, 28, "Menu", {colour:[80,50,120], textColour:"#add8e6", fontSize:12, action:()=>{state="customise";}});
-  drawText(`Level ${level}`, 20, 25, {size:22, colour:"#ffd700", bold:true, align:"left"});
+  const mob = W < 700;
+  btn(W-70, 6, 62, 26, "Menu", {colour:[80,50,120], textColour:"#add8e6", fontSize:12, action:()=>{state="customise";}});
+  drawText(`Lv ${level}`, 15, 18, {size:mob?16:22, colour:"#ffd700", bold:true, align:"left"});
   const mins = timeElapsed/60|0, secs = timeElapsed%60;
   const timeStr = mins > 0 ? `${mins}:${secs<10?"0":""}${secs.toFixed(2)}` : `${secs.toFixed(2)}s`;
-  drawText(timeStr, W/2, 25, {size:30, colour:"#ffe064", bold:true, font:"Courier New"});
-  drawText(`Moves: ${moves}`, 60, 50, {size:16, colour:"#fff", align:"left"});
-  drawText(activeUser, W-60, 20, {size:18, colour:"#add8e6", bold:true, align:"right"});
+  drawText(timeStr, W/2, 18, {size:mob?22:30, colour:"#ffe064", bold:true, font:"Courier New"});
+  drawText(`Moves: ${moves}`, 15, mob?38:50, {size:mob?13:16, colour:"#fff", align:"left"});
+  drawText(activeUser, W-80, mob?38:50, {size:mob?12:16, colour:"#add8e6", bold:true, align:"right"});
 
   drawMaze();
   // Dragon
