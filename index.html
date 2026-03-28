@@ -1310,7 +1310,7 @@ function drawChangeUser() {
     ctx.fillStyle = "#fff"; roundRect(px+30, py+110, pw-60, 42, 6); ctx.fill();
     ctx.strokeStyle = "#ffd700"; ctx.lineWidth = 2; roundRect(px+30, py+110, pw-60, 42, 6); ctx.stroke();
     drawText(renameText + "|", W/2, py+131, {size:22, colour:"#000", bold:true});
-    drawText("Enter = confirm  |  ESC = cancel", W/2, py+170, {size:14, colour:"#999"});
+    btn(W/2-60, py+160, 120, 30, "Cancel", {colour:[160,60,60], textColour:"#fff", fontSize:13, action:()=>{state="change_user";}});
   } else {
     users.forEach((u, i) => {
       const ry = py + 80 + i*50;
@@ -1329,7 +1329,7 @@ function drawChangeUser() {
        action:()=>{newUserName=""; state="new_user"; focusMobileInput("");}});
   }
   buttons.forEach(drawBtn);
-  drawText("ESC to close", W/2, py+ph-20, {size:12, colour:"#666"});
+  btn(px+pw-70, py+ph-35, 60, 25, "Close", {colour:[80,50,120], textColour:"#add8e6", fontSize:12, action:()=>{state="customise";}});
 }
 
 function drawShowLeaderboard() {
@@ -1352,8 +1352,10 @@ function drawShowLeaderboard() {
   } else {
     drawText("No scores yet - be the first!", W/2, 200, {size:22, colour:"#ccc"});
   }
-  drawText("Press any key to start!", W/2, H-70, {size:24, colour:"#32c832", bold:true});
+  btn(W/2-100, H-80, 200, 40, "Start!", {colour:[40,160,40], textColour:"#fff", fontSize:20, action:()=>{state="playing";}});
+  btn(10, 10, 80, 30, "< Menu", {colour:[80,50,120], textColour:"#add8e6", fontSize:13, action:()=>{state="customise";}});
   drawCredit();
+  buttons.forEach(drawBtn);
 }
 
 function drawPlaying() {
@@ -1361,7 +1363,8 @@ function drawPlaying() {
   ctx.fillStyle = "#231234"; ctx.fillRect(0,0,W,H);
 
   // HUD
-  drawText(`Level ${level}`, 60, 25, {size:22, colour:"#ffd700", bold:true, align:"left"});
+  btn(W-75, 8, 65, 28, "Menu", {colour:[80,50,120], textColour:"#add8e6", fontSize:12, action:()=>{state="customise";}});
+  drawText(`Level ${level}`, 20, 25, {size:22, colour:"#ffd700", bold:true, align:"left"});
   const mins = timeElapsed/60|0, secs = timeElapsed%60;
   const timeStr = mins > 0 ? `${mins}:${secs<10?"0":""}${secs.toFixed(2)}` : `${secs.toFixed(2)}s`;
   drawText(timeStr, W/2, 25, {size:30, colour:"#ffe064", bold:true, font:"Courier New"});
@@ -1458,7 +1461,6 @@ function drawLevelComplete() {
   btn(W/2+20, btnY, 210, 44, "Main Menu", {colour:[120,80,160], textColour:"#fff", fontSize:20,
     action:()=>{state="customise";}});
   buttons.forEach(drawBtn);
-  drawText("Enter = next level  |  ESC = main menu", W/2, btnY+55, {size:13, colour:"#504060"});
 }
 
 // ─── GAME LOGIC ───
