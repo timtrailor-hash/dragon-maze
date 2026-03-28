@@ -454,19 +454,28 @@ function drawDragon(cx, cy, scale, dir, t, colourArr, eyeStyle, wings) {
     c.stroke();
   }
 
-  // ─── 7. SCALES TEXTURE ───
-  c.fillStyle = _rgb(_shade(col, -20), 0.25);
-  for (let row = 0; row < 6; row++) {
-    for (let col2 = 0; col2 < 7; col2++) {
-      const sx2 = mx - 14*s + (col2 + (row % 2 ? 0.5 : 0)) * 5*s;
-      const sy2 = my - 14*s + row * 5*s;
+  // ─── 7. SCALES TEXTURE (on the back/upper body only) ───
+  for (let row = 0; row < 5; row++) {
+    for (let col2 = 0; col2 < 8; col2++) {
+      const sx2 = mx - 16*s + (col2 + (row % 2 ? 0.5 : 0)) * 4.5*s;
+      const sy2 = my - 16*s + row * 4*s;
       const dx = (sx2 - mx) / (20*s);
       const dy = (sy2 - my) / (18*s);
-      if (dx*dx + dy*dy < 0.7) {
+      // Only draw on upper/back portion of body (above centre)
+      if (dx*dx + dy*dy < 0.65 && sy2 < my - 2*s) {
+        // Scale shadow (darker crescent at bottom)
+        c.fillStyle = _rgb(_shade(col, -30), 0.35);
+        c.beginPath();
+        c.moveTo(sx2, sy2 - 1.8*s);
+        c.quadraticCurveTo(sx2 + 2.2*s, sy2, sx2, sy2 + 1.8*s);
+        c.quadraticCurveTo(sx2 - 2.2*s, sy2, sx2, sy2 - 1.8*s);
+        c.fill();
+        // Scale highlight (lighter top)
+        c.fillStyle = _rgb(_shade(col, 15), 0.25);
         c.beginPath();
         c.moveTo(sx2, sy2 - 1.5*s);
-        c.quadraticCurveTo(sx2 + 2*s, sy2, sx2, sy2 + 1.5*s);
-        c.quadraticCurveTo(sx2 - 2*s, sy2, sx2, sy2 - 1.5*s);
+        c.quadraticCurveTo(sx2 + 1.8*s, sy2 - 0.5*s, sx2, sy2 + 0.3*s);
+        c.quadraticCurveTo(sx2 - 1.8*s, sy2 - 0.5*s, sx2, sy2 - 1.5*s);
         c.fill();
       }
     }
