@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Dragon Maze Adventure!</title>
@@ -51,42 +51,47 @@ resize();
 let state = "new_user"; // new_user, customise, show_leaderboard, playing, challenge, challenge_result, level_complete
 let profiles = JSON.parse(localStorage.getItem("dm_profiles") || '{"users":{},"active":""}');
 let leaderboard = JSON.parse(localStorage.getItem("dm_leaderboard") || "{}");
-const LB_BLOB = "https://jsonblob.com/api/jsonBlob/019d34e6-2551-7fe1-a443-16d89b19f30d";
+const LB_API = "https://quoted-christine-northern-diamonds.trycloudflare.com/api/leaderboard";
 
 // Fetch shared leaderboard on load
 async function fetchLeaderboard() {
   try {
-    const res = await fetch(LB_BLOB, {headers:{"Accept":"application/json"}});
+    const res = await fetch(LB_API, {headers:{"Accept":"application/json"}});
     if (res.ok) {
       const data = await res.json();
-      leaderboard = data;
-      localStorage.setItem("dm_leaderboard", JSON.stringify(data));
+      if (data && typeof data === "object" && Object.keys(data).length > 0) {
+        leaderboard = data;
+      } else if (Object.keys(data).length === 0 && Object.keys(leaderboard).length > 0) {
+        // Server is empty but we have local data — push it up
+        for (const [key, entries] of Object.entries(leaderboard)) {
+          for (const e of entries) {
+            fetch(`${LB_API}/${key}`, {method:"POST", headers:{"Content-Type":"application/json"},
+              body:JSON.stringify(e)}).catch(()=>{});
+          }
+        }
+      }
+      localStorage.setItem("dm_leaderboard", JSON.stringify(leaderboard));
     }
   } catch(e) { console.warn("Could not fetch shared leaderboard:", e); }
 }
 async function submitScore(boardKey, name, time, moves) {
+  // Update local immediately
+  if (!leaderboard[boardKey]) leaderboard[boardKey] = [];
+  const rt = Math.round(time*100)/100;
+  const ex = leaderboard[boardKey].find(e => e.name === name);
+  if (ex) { if (rt < ex.time) { ex.time = rt; ex.moves = moves; } }
+  else { leaderboard[boardKey].push({name, time:rt, moves}); }
+  leaderboard[boardKey].sort((a,b) => a.time - b.time);
+  leaderboard[boardKey] = leaderboard[boardKey].slice(0, 10);
+  localStorage.setItem("dm_leaderboard", JSON.stringify(leaderboard));
+  // Submit to server
   try {
-    // Read current data, merge new score, write back
-    const res = await fetch(LB_BLOB, {headers:{"Accept":"application/json"}});
-    if (!res.ok) return;
-    const data = await res.json();
-    if (!data[boardKey]) data[boardKey] = [];
-    const roundedTime = Math.round(time*100)/100;
-    const existing = data[boardKey].find(e => e.name === name);
-    if (existing) {
-      if (roundedTime < existing.time) { existing.time = roundedTime; existing.moves = moves; }
-    } else {
-      data[boardKey].push({name, time: roundedTime, moves});
-    }
-    data[boardKey].sort((a,b) => a.time - b.time);
-    data[boardKey] = data[boardKey].slice(0, 10);
-    await fetch(LB_BLOB, {
-      method: "PUT",
+    await fetch(`${LB_API}/${boardKey}`, {
+      method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify(data)
+      body: JSON.stringify({name, time: rt, moves})
     });
-    leaderboard = data;
-    localStorage.setItem("dm_leaderboard", JSON.stringify(data));
+    fetchLeaderboard(); // Refresh from server
   } catch(e) { console.warn("Score submit failed:", e); }
 }
 fetchLeaderboard();
@@ -1389,7 +1394,7 @@ function startLevelFn() {
 function generateChallenge() {
   const tables = [...challengeTables];
   const t = tables[Math.random()*tables.length|0];
-  const m = (Math.random()*12|0)+1;
+  const m = (Math.random()*11|0)+2; // multiplier 2-12 (skip trivial x1)
   const correct = t*m;
   const wrong = new Set();
   while(wrong.size<2){
@@ -1429,17 +1434,6 @@ function tryMove(dx, dy, dir) {
   } else if (dragon.gx === endX && dragon.gy === endY) {
     const [w2,h2] = levelDims(level);
     const bk = boardKey(w2,h2);
-    if (!leaderboard[bk]) leaderboard[bk] = [];
-    const rt = Math.round(timeElapsed*100)/100;
-    const ex = leaderboard[bk].find(e => e.name === activeUser);
-    if (ex) {
-      if (rt < ex.time) { ex.time = rt; ex.moves = moves; }
-    } else {
-      leaderboard[bk].push({name:activeUser, time:rt, moves});
-    }
-    leaderboard[bk].sort((a,b)=>a.time-b.time);
-    leaderboard[bk] = leaderboard[bk].slice(0,10);
-    saveLB();
     submitScore(bk, activeUser, timeElapsed, moves);
     state = "level_complete";
   }
@@ -1541,13 +1535,16 @@ canvas.addEventListener("touchstart", e => {
 
   // Check D-pad (only while playing and no challenge active)
   if ((state === "playing") && !activeChallenge && isMobile) {
-    const dpadCx = W - 80, dpadCy = H - 100, dpadR = 35;
+    const dpadCx = W - 90, dpadCy = H - 110, dpadR = 25;
     const ddx = mx - dpadCx, ddy = my - dpadCy;
-    if (Math.abs(ddx) + Math.abs(ddy) < dpadR * 3) {
-      if (ddy < -dpadR && Math.abs(ddx) < dpadR * 1.5) { tryMove(0,-1,"N"); return; }
-      if (ddy > dpadR && Math.abs(ddx) < dpadR * 1.5) { tryMove(0,1,"S"); return; }
-      if (ddx < -dpadR && Math.abs(ddy) < dpadR * 1.5) { tryMove(-1,0,"W"); return; }
-      if (ddx > dpadR && Math.abs(ddy) < dpadR * 1.5) { tryMove(1,0,"E"); return; }
+    // Use simple quadrant detection — much more responsive
+    if (Math.abs(ddx) + Math.abs(ddy) < 120) {
+      if (Math.abs(ddy) > Math.abs(ddx)) {
+        ddy < 0 ? tryMove(0,-1,"N") : tryMove(0,1,"S");
+      } else {
+        ddx < 0 ? tryMove(-1,0,"W") : tryMove(1,0,"E");
+      }
+      return;
     }
   }
 
@@ -1594,8 +1591,10 @@ canvas.addEventListener("touchend", e2 => {
   }
 }, {passive: true});
 
-// Prevent default touch behaviours
-document.addEventListener("touchmove", e => e.preventDefault(), {passive: false});
+// Prevent default touch scroll but allow pinch-to-zoom (2+ fingers)
+document.addEventListener("touchmove", e => {
+  if (e.touches.length < 2) e.preventDefault();
+}, {passive: false});
 
 // Mobile text input handling (for name entry)
 mobileInput.addEventListener("input", e => {
@@ -1625,22 +1624,26 @@ function focusMobileInput(prefill) {
 // Draw D-pad on screen during gameplay (mobile only)
 function drawDpad() {
   if (!isMobile) return;
-  const cx2 = W - 80, cy2 = H - 100, r = 30;
-  const alpha = 0.35;
+  const cx2 = W - 90, cy2 = H - 110, r = 40;
+  const alpha = 0.45;
 
   // Background circle
   ctx.fillStyle = `rgba(60,40,80,${alpha})`;
-  ctx.beginPath(); ctx.arc(cx2, cy2, r*2.5, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx2, cy2, r*2.8, 0, Math.PI*2); ctx.fill();
 
   // Up
-  ctx.fillStyle = `rgba(200,180,255,${alpha+0.1})`;
-  ctx.beginPath(); ctx.moveTo(cx2, cy2-r*2); ctx.lineTo(cx2-r*0.7, cy2-r*0.8); ctx.lineTo(cx2+r*0.7, cy2-r*0.8); ctx.fill();
+  ctx.fillStyle = `rgba(200,180,255,${alpha+0.15})`;
+  ctx.beginPath(); ctx.moveTo(cx2, cy2-r*2.2); ctx.lineTo(cx2-r*0.9, cy2-r*0.6); ctx.lineTo(cx2+r*0.9, cy2-r*0.6); ctx.fill();
   // Down
-  ctx.beginPath(); ctx.moveTo(cx2, cy2+r*2); ctx.lineTo(cx2-r*0.7, cy2+r*0.8); ctx.lineTo(cx2+r*0.7, cy2+r*0.8); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(cx2, cy2+r*2.2); ctx.lineTo(cx2-r*0.9, cy2+r*0.6); ctx.lineTo(cx2+r*0.9, cy2+r*0.6); ctx.fill();
   // Left
-  ctx.beginPath(); ctx.moveTo(cx2-r*2, cy2); ctx.lineTo(cx2-r*0.8, cy2-r*0.7); ctx.lineTo(cx2-r*0.8, cy2+r*0.7); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(cx2-r*2.2, cy2); ctx.lineTo(cx2-r*0.6, cy2-r*0.9); ctx.lineTo(cx2-r*0.6, cy2+r*0.9); ctx.fill();
   // Right
-  ctx.beginPath(); ctx.moveTo(cx2+r*2, cy2); ctx.lineTo(cx2+r*0.8, cy2-r*0.7); ctx.lineTo(cx2+r*0.8, cy2+r*0.7); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(cx2+r*2.2, cy2); ctx.lineTo(cx2+r*0.6, cy2-r*0.9); ctx.lineTo(cx2+r*0.6, cy2+r*0.9); ctx.fill();
+
+  // Centre dot
+  ctx.fillStyle = `rgba(150,130,200,0.3)`;
+  ctx.beginPath(); ctx.arc(cx2, cy2, r*0.35, 0, Math.PI*2); ctx.fill();
 }
 
 // ─── GAME LOOP ───
