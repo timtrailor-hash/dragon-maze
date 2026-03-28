@@ -1,0 +1,939 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dragon Maze Adventure!</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #231234; font-family: Arial, sans-serif; color: #fff; overflow: hidden; }
+canvas { display: block; margin: 0 auto; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<script>
+"use strict";
+
+// ─── CONSTANTS ───
+const DRAGON_COLOURS = {
+  Red:[220,40,40], Green:[40,180,40], Blue:[40,80,220], Purple:[150,40,200],
+  Gold:[220,180,30], Pink:[255,120,180], Black:[50,50,50], White:[240,240,240]
+};
+const EYE_STYLES = {
+  "Big Round":{shape:"round",size:"big",colour:[255,255,0]},
+  "Small Round":{shape:"round",size:"small",colour:[0,200,255]},
+  "Cat Eyes":{shape:"cat",size:"medium",colour:[0,255,0]},
+  "Angry Eyes":{shape:"angry",size:"medium",colour:[255,0,0]},
+  "Cute Eyes":{shape:"cute",size:"big",colour:[100,50,255]},
+  "Star Eyes":{shape:"star",size:"big",colour:[255,215,0]}
+};
+const SIZES = {Small:0.65, Medium:0.82, Large:1.0};
+const DENSITY_MAP = {Few:0.05, Some:0.10, Many:0.15};
+const TIME_REWARD = {10:10, 20:7, 30:5};
+
+// ─── CANVAS SETUP ───
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+let W, H;
+function resize() {
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width = W; canvas.height = H;
+}
+window.addEventListener("resize", resize);
+resize();
+
+// ─── STATE ───
+let state = "new_user"; // new_user, customise, show_leaderboard, playing, challenge, challenge_result, level_complete
+let profiles = JSON.parse(localStorage.getItem("dm_profiles") || '{"users":{},"active":""}');
+let leaderboard = JSON.parse(localStorage.getItem("dm_leaderboard") || "{}");
+let activeUser = profiles.active || "";
+let selectedColour = "Red";
+let selectedEyes = "Big Round";
+let selectedSize = "Medium";
+let hasWings = true;
+let challengesEnabled = false;
+let challengeDensity = "Some";
+let challengeTimeLimit = 10;
+let challengeTables = new Set([2,3,4,5,6,7,8,9,10,11,12]);
+let startLevel = 1;
+let fullscreenPreview = false;
+let lbExpandedLevel = null;
+let newUserName = "";
+let renameTarget = ""; // user being renamed
+let renameText = "";
+
+// Game state
+let level = 1, maze = null, dragon = null;
+let endX = 0, endY = 0, cellSize = 0, mazeOX = 0, mazeOY = 0;
+let moves = 0, timeElapsed = 0, timerPaused = false;
+let challengeSquares = {};
+let activeChallenge = null;
+let challengeResultMsg = "", challengeResultMsg2 = "", challengeResultColour = "";
+let lastTime = 0;
+
+// ─── HELPERS ───
+function rgb(c, a) { return a !== undefined ? `rgba(${c[0]},${c[1]},${c[2]},${a})` : `rgb(${c[0]},${c[1]},${c[2]})`; }
+function shade(c, amt) { return c.map(v => Math.max(0, Math.min(255, v + amt))); }
+function saveProfiles() { localStorage.setItem("dm_profiles", JSON.stringify(profiles)); }
+function saveLB() { localStorage.setItem("dm_leaderboard", JSON.stringify(leaderboard)); }
+function boardKey(w, h) { return `${w}x${h}`; }
+function levelDims(lv) {
+  if (lv <= 2) return [5+lv, 5+lv];
+  if (lv <= 5) return [6+lv, 6+lv];
+  if (lv <= 8) return [8+lv, 8+lv];
+  return [Math.min(20, 8+lv), Math.min(15, 6+lv)];
+}
+function loadUserPrefs() {
+  const p = profiles.users[activeUser] || {};
+  selectedColour = p.colour || "Red";
+  selectedEyes = p.eyes || "Big Round";
+  selectedSize = p.size || "Medium";
+  hasWings = p.wings !== undefined ? p.wings : true;
+}
+function saveUserPrefs() {
+  if (!activeUser) return;
+  profiles.users[activeUser] = { colour: selectedColour, eyes: selectedEyes, size: selectedSize, wings: hasWings };
+  profiles.active = activeUser;
+  saveProfiles();
+}
+
+// ─── MAZE GENERATION ───
+function generateMaze(w, h) {
+  const grid = [];
+  for (let y = 0; y < h; y++) {
+    grid[y] = [];
+    for (let x = 0; x < w; x++) grid[y][x] = new Set(["N","S","E","W"]);
+  }
+  const visited = Array.from({length:h}, ()=>Array(w).fill(false));
+  const stack = [[0,0]];
+  visited[0][0] = true;
+  const dirs = [[0,-1,"N","S"],[0,1,"S","N"],[1,0,"E","W"],[-1,0,"W","E"]];
+  while (stack.length) {
+    const [cx,cy] = stack[stack.length-1];
+    const nbrs = [];
+    for (const [dx,dy,d,o] of dirs) {
+      const nx=cx+dx, ny=cy+dy;
+      if (nx>=0 && nx<w && ny>=0 && ny<h && !visited[ny][nx]) nbrs.push([nx,ny,d,o]);
+    }
+    if (nbrs.length) {
+      const [nx,ny,d,o] = nbrs[Math.random()*nbrs.length|0];
+      grid[cy][cx].delete(d);
+      grid[ny][nx].delete(o);
+      visited[ny][nx] = true;
+      stack.push([nx,ny]);
+    } else stack.pop();
+  }
+  return { w, h, grid, canMove(x,y,d) { return x>=0 && x<w && y>=0 && y<h && !grid[y][x].has(d); } };
+}
+
+// ─── DRAGON DRAWING ───
+function drawDragon(cx, cy, scale, dir, t, colour, eyeStyle, wings) {
+  const s = scale;
+  const r = colour[0], g = colour[1], b = colour[2];
+  const bob = Math.sin(t * 3) * 2 * s;
+  cy += bob;
+  ctx.save();
+
+  // Shadow
+  ctx.fillStyle = "rgba(0,0,0,0.15)";
+  ctx.beginPath(); ctx.ellipse(cx, cy + 22*s, 18*s, 4*s, 0, 0, Math.PI*2); ctx.fill();
+
+  // Tail
+  const tailSign = dir === "left" ? 1 : -1;
+  ctx.strokeStyle = rgb(shade(colour, -15));
+  ctx.lineWidth = 5*s;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(cx + tailSign*14*s, cy + 2*s);
+  for (let i = 1; i <= 8; i++) {
+    const tt = i/8;
+    const tx = cx + tailSign*(14*s + tt*28*s);
+    const ty = cy + 2*s + Math.sin(t*4 + tt*3)*4*s*tt + tt*6*s - tt*tt*10*s;
+    ctx.lineTo(tx, ty);
+  }
+  ctx.stroke();
+  // Tail spade
+  const tipX = cx + tailSign*42*s, tipY = cy - 2*s;
+  ctx.fillStyle = rgb(shade(colour, -40));
+  ctx.beginPath();
+  ctx.moveTo(tipX, tipY-5*s); ctx.lineTo(tipX+tailSign*10*s, tipY); ctx.lineTo(tipX, tipY+5*s);
+  ctx.fill();
+
+  // Wings
+  if (wings) {
+    const flap = Math.sin(t * 5) * 8 * s;
+    for (const side of [-1, 1]) {
+      ctx.fillStyle = rgb(shade(colour, -25), 0.6);
+      ctx.beginPath();
+      ctx.moveTo(cx + side*8*s, cy - 4*s);
+      ctx.lineTo(cx + side*35*s, cy - 28*s - flap);
+      ctx.lineTo(cx + side*38*s, cy - 12*s - flap*0.6);
+      ctx.lineTo(cx + side*30*s, cy + 2*s - flap*0.3);
+      ctx.lineTo(cx + side*6*s, cy + 5*s);
+      ctx.fill();
+      // Bones
+      ctx.strokeStyle = rgb(shade(colour, -55));
+      ctx.lineWidth = 2*s;
+      ctx.beginPath();
+      ctx.moveTo(cx+side*8*s, cy-4*s);
+      ctx.lineTo(cx+side*25*s, cy-20*s-flap*0.8);
+      ctx.lineTo(cx+side*35*s, cy-28*s-flap);
+      ctx.moveTo(cx+side*25*s, cy-20*s-flap*0.8);
+      ctx.lineTo(cx+side*38*s, cy-12*s-flap*0.6);
+      ctx.stroke();
+    }
+  }
+
+  // Legs
+  for (const lx of [-8*s, 8*s]) {
+    ctx.fillStyle = rgb(shade(colour, -20));
+    ctx.beginPath(); ctx.ellipse(cx+lx, cy+14*s, 5*s, 8*s, 0, 0, Math.PI*2); ctx.fill();
+    // Claws
+    for (const co of [-3*s, 0, 3*s]) {
+      ctx.fillStyle = "#3a3530";
+      ctx.beginPath();
+      ctx.moveTo(cx+lx+co-1.5*s, cy+20*s); ctx.lineTo(cx+lx+co, cy+25*s); ctx.lineTo(cx+lx+co+1.5*s, cy+20*s);
+      ctx.fill();
+    }
+  }
+
+  // Body gradient
+  for (let i = 0; i < 5; i++) {
+    const t2 = i/4;
+    ctx.fillStyle = rgb(shade(colour, -20 + t2*40));
+    ctx.beginPath();
+    ctx.ellipse(cx + i*0.5*s, cy + i*0.5*s, (22-i*1.5)*s, (18-i*1.5)*s, 0, 0, Math.PI*2);
+    ctx.fill();
+  }
+  // Body outline
+  ctx.strokeStyle = rgb(shade(colour, -50)); ctx.lineWidth = 2*s;
+  ctx.beginPath(); ctx.ellipse(cx, cy, 22*s, 18*s, 0, 0, Math.PI*2); ctx.stroke();
+
+  // Belly plates
+  const bellyC = shade(colour, 65);
+  for (let i = 0; i < 4; i++) {
+    const pw = (12 - Math.abs(i-1.5)*3)*s;
+    const py = cy - 3*s + i*5*s;
+    ctx.fillStyle = rgb(i%2?shade(bellyC,10):bellyC);
+    ctx.beginPath(); ctx.ellipse(cx, py, pw, 3*s, 0, 0, Math.PI*2); ctx.fill();
+  }
+
+  // Scales
+  ctx.fillStyle = rgb(shade(colour, -25), 0.3);
+  for (let row=0; row<4; row++) {
+    for (let col=0; col<5; col++) {
+      const sx = cx - 10*s + (col + (row%2?0.5:0))*5*s;
+      const sy = cy - 8*s + row*4.5*s;
+      const dx = (sx-cx)/(22*s), dy = (sy-cy)/(18*s);
+      if (dx*dx+dy*dy < 0.6) {
+        ctx.beginPath(); ctx.ellipse(sx, sy, 2.5*s, 1.5*s, 0, 0, Math.PI*2); ctx.fill();
+      }
+    }
+  }
+
+  // Head
+  const hOff = {right:[16,-8], left:[-16,-8], up:[0,-18], down:[0,12]};
+  const [hox, hoy] = (hOff[dir] || hOff.right).map(v => v*s);
+  const hx = cx + hox, hy = cy + hoy;
+  // Head shape
+  for (let i=0; i<4; i++) {
+    ctx.fillStyle = rgb(shade(colour, -10+i*15));
+    ctx.beginPath(); ctx.ellipse(hx+i*0.3*s, hy+i*0.3*s, (12-i)*s, (10-i)*s, 0, 0, Math.PI*2); ctx.fill();
+  }
+  ctx.strokeStyle = rgb(shade(colour,-45)); ctx.lineWidth = 1.5*s;
+  ctx.beginPath(); ctx.ellipse(hx, hy, 12*s, 10*s, 0, 0, Math.PI*2); ctx.stroke();
+
+  // Snout
+  const sOff = {right:[10,3], left:[-10,3], up:[0,-10], down:[0,10]};
+  const [sox, soy] = (sOff[dir]||sOff.right).map(v=>v*s);
+  ctx.fillStyle = rgb(shade(colour, 20));
+  ctx.beginPath(); ctx.ellipse(hx+sox, hy+soy, 7*s, 5*s, 0, 0, Math.PI*2); ctx.fill();
+
+  // Nostrils
+  ctx.fillStyle = "#2a1414";
+  if (dir==="right"||dir==="left") {
+    const ns = dir==="right"?1:-1;
+    ctx.beginPath(); ctx.ellipse(hx+sox+ns*5*s, hy+soy-2*s, 1.8*s, 1.2*s, 0, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(hx+sox+ns*5*s, hy+soy+2*s, 1.8*s, 1.2*s, 0, 0, Math.PI*2); ctx.fill();
+  }
+
+  // Horns
+  const hornC = "#bda882";
+  for (const hAngle of [0.4, 0.55]) {
+    const hornLen = (hAngle<0.5?14:10)*s;
+    ctx.strokeStyle = hornC; ctx.lineWidth = 3*s; ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(hx, hy-9*s);
+    ctx.quadraticCurveTo(hx + Math.cos(hAngle*Math.PI)*hornLen*0.6, hy-9*s - Math.sin(hAngle*Math.PI)*hornLen*0.6,
+      hx + Math.cos(hAngle*Math.PI)*hornLen, hy-9*s - Math.sin(hAngle*Math.PI)*hornLen);
+    ctx.stroke();
+  }
+
+  // Spines
+  ctx.fillStyle = rgb(shade(colour, -45));
+  for (let i=0; i<6; i++) {
+    const tt = i/5;
+    const spx = hx + (cx-hx)*tt*1.2;
+    const spy = hy + (cy-hy)*tt - 14*s*(1-Math.abs(tt-0.5)*2);
+    const spH = (6 + Math.abs(3-i)*2)*s;
+    ctx.beginPath();
+    ctx.moveTo(spx-2*s, spy); ctx.lineTo(spx, spy-spH); ctx.lineTo(spx+2*s, spy);
+    ctx.fill();
+  }
+
+  // Eyes
+  const eyeS = eyeStyle;
+  const sizeMult = {small:0.6, medium:0.8, big:1.0}[eyeS.size];
+  const er = 5*s*sizeMult;
+  let eyes;
+  if (dir==="right"||dir==="left") {
+    const es = dir==="right"?1:-1;
+    eyes = [[hx+es*4*s, hy-4*s], [hx+es*4*s, hy+2*s]];
+  } else if (dir==="up") {
+    eyes = [[hx-4*s, hy-3*s], [hx+4*s, hy-3*s]];
+  } else {
+    eyes = [[hx-4*s, hy+3*s], [hx+4*s, hy+3*s]];
+  }
+  for (const [ex, ey] of eyes) {
+    // Socket
+    ctx.fillStyle = rgb(shade(colour, -35));
+    ctx.beginPath(); ctx.arc(ex, ey, er+2*s, 0, Math.PI*2); ctx.fill();
+
+    if (eyeS.shape === "round") {
+      ctx.fillStyle = "#fcfaf0"; ctx.beginPath(); ctx.arc(ex,ey,er,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle = rgb(eyeS.colour); ctx.beginPath(); ctx.arc(ex,ey,er*0.6,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle = "#050505"; ctx.beginPath(); ctx.arc(ex,ey,er*0.28,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,0.85)"; ctx.beginPath(); ctx.arc(ex-er*0.25,ey-er*0.25,er*0.18,0,Math.PI*2); ctx.fill();
+    } else if (eyeS.shape === "cat") {
+      ctx.fillStyle = rgb(eyeS.colour); ctx.beginPath(); ctx.arc(ex,ey,er,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle = rgb(shade(eyeS.colour,40)); ctx.beginPath(); ctx.arc(ex,ey,er*0.75,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle = "#050505"; ctx.fillRect(ex-1*s, ey-er+2*s, 2*s, er*2-4*s);
+    } else if (eyeS.shape === "angry") {
+      ctx.fillStyle = "#fcf0e8"; ctx.beginPath(); ctx.arc(ex,ey,er,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle = rgb(eyeS.colour); ctx.beginPath(); ctx.arc(ex,ey,er*0.5,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle = "#050505"; ctx.beginPath(); ctx.arc(ex,ey,er*0.2,0,Math.PI*2); ctx.fill();
+      ctx.strokeStyle = "#1e1e1e"; ctx.lineWidth = 2*s;
+      ctx.beginPath(); ctx.moveTo(ex-er,ey-er-1*s); ctx.lineTo(ex+er,ey-er-4*s); ctx.stroke();
+    } else if (eyeS.shape === "cute") {
+      ctx.fillStyle = "#fcfaf5"; ctx.beginPath(); ctx.arc(ex,ey,er,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle = rgb(eyeS.colour); ctx.beginPath(); ctx.arc(ex,ey,er*0.75,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle = "#050505"; ctx.beginPath(); ctx.arc(ex,ey+er*0.1,er*0.3,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,0.9)"; ctx.beginPath(); ctx.arc(ex-er*0.25,ey-er*0.25,er*0.28,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,0.7)"; ctx.beginPath(); ctx.arc(ex+er*0.2,ey+er*0.15,er*0.1,0,Math.PI*2); ctx.fill();
+    } else if (eyeS.shape === "star") {
+      ctx.fillStyle = rgb(eyeS.colour); ctx.beginPath(); ctx.arc(ex,ey,er,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle = "#0a0a0a";
+      ctx.beginPath();
+      for (let i=0;i<10;i++){
+        const a=-Math.PI/2+i*Math.PI/5;
+        const rr=i%2?er*0.5:er*0.22;
+        i?ctx.lineTo(ex+rr*Math.cos(a),ey+rr*Math.sin(a)):ctx.moveTo(ex+rr*Math.cos(a),ey+rr*Math.sin(a));
+      }
+      ctx.fill();
+    }
+    ctx.strokeStyle = "#1e1e1e"; ctx.lineWidth = 1*s;
+    ctx.beginPath(); ctx.arc(ex,ey,er,0,Math.PI*2); ctx.stroke();
+  }
+
+  ctx.restore();
+}
+
+// ─── UI HELPERS ───
+let hoveredBtn = null;
+const buttons = [];
+function btn(x, y, w, h, text, opts={}) {
+  const b = {x,y,w,h,text,...opts,id:buttons.length};
+  buttons.push(b);
+  return b;
+}
+function clearButtons() { buttons.length = 0; }
+function drawBtn(b) {
+  if (b.alpha === 0) return; // invisible hit area, don't draw
+  const hov = hoveredBtn === b;
+  let col = b.colour || [200,200,200];
+  if (b.selected) col = [255,215,0];
+  if (hov) col = shade(col, 25);
+  ctx.fillStyle = rgb(col);
+  roundRect(b.x, b.y, b.w, b.h, 6);
+  ctx.fill();
+  ctx.strokeStyle = "#000"; ctx.lineWidth = 1.5;
+  roundRect(b.x, b.y, b.w, b.h, 6); ctx.stroke();
+  ctx.fillStyle = b.textColour || "#000";
+  ctx.font = `bold ${b.fontSize||16}px Arial`;
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.fillText(b.text, b.x + b.w/2, b.y + b.h/2);
+}
+function roundRect(x,y,w,h,r) {
+  ctx.beginPath(); ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y); ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+  ctx.lineTo(x+w,y+h-r); ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h); ctx.lineTo(x+r,y+h);
+  ctx.quadraticCurveTo(x,y+h,x,y+h-r); ctx.lineTo(x,y+r); ctx.quadraticCurveTo(x,y,x+r,y);
+  ctx.closePath();
+}
+function drawText(text, x, y, opts={}) {
+  ctx.fillStyle = opts.colour || "#fff";
+  ctx.font = `${opts.bold?"bold ":""}${opts.size||16}px ${opts.font||"Arial"}`;
+  ctx.textAlign = opts.align || "center";
+  ctx.textBaseline = opts.base || "middle";
+  ctx.fillText(text, x, y);
+}
+function drawCredit() {
+  drawText("Designed and built by Rose Trailor using Claude Code", W/2, H-16, {size:16, colour:"#a896c8", bold:true});
+}
+
+// ─── MAZE DRAWING ───
+function drawMaze() {
+  const m = maze;
+  for (let y = 0; y < m.h; y++) {
+    for (let x = 0; x < m.w; x++) {
+      const px = mazeOX + x*cellSize, py = mazeOY + y*cellSize;
+      ctx.fillStyle = (x===0&&y===0) ? "#78dc78" : (x===endX&&y===endY) ? "#ffc850" : "#e0d5f0";
+      ctx.fillRect(px, py, cellSize, cellSize);
+    }
+  }
+  ctx.strokeStyle = "#3c2850"; ctx.lineWidth = 3;
+  for (let y = 0; y < m.h; y++) {
+    for (let x = 0; x < m.w; x++) {
+      const px = mazeOX + x*cellSize, py = mazeOY + y*cellSize;
+      const walls = m.grid[y][x];
+      if (walls.has("N")) { ctx.beginPath(); ctx.moveTo(px,py); ctx.lineTo(px+cellSize,py); ctx.stroke(); }
+      if (walls.has("S")) { ctx.beginPath(); ctx.moveTo(px,py+cellSize); ctx.lineTo(px+cellSize,py+cellSize); ctx.stroke(); }
+      if (walls.has("W")) { ctx.beginPath(); ctx.moveTo(px,py); ctx.lineTo(px,py+cellSize); ctx.stroke(); }
+      if (walls.has("E")) { ctx.beginPath(); ctx.moveTo(px+cellSize,py); ctx.lineTo(px+cellSize,py+cellSize); ctx.stroke(); }
+    }
+  }
+  // Star at end
+  const scx = mazeOX + endX*cellSize + cellSize/2, scy = mazeOY + endY*cellSize + cellSize/2;
+  ctx.fillStyle = "#ffd700";
+  ctx.beginPath();
+  for (let i=0;i<10;i++){const a=-Math.PI/2+i*Math.PI/5;const r=i%2?cellSize*0.13:cellSize*0.33;
+    i?ctx.lineTo(scx+r*Math.cos(a),scy+r*Math.sin(a)):ctx.moveTo(scx+r*Math.cos(a),scy+r*Math.sin(a));}
+  ctx.fill();
+
+  // Challenge squares
+  const pulse = 0.7 + 0.3*Math.sin(Date.now()/300);
+  for (const key in challengeSquares) {
+    const [cx2,cy2] = key.split(",").map(Number);
+    const px = mazeOX + cx2*cellSize + cellSize/2;
+    const py = mazeOY + cy2*cellSize + cellSize/2;
+    const ir = cellSize*0.28*pulse;
+    ctx.fillStyle = "#ffc832"; ctx.beginPath(); ctx.arc(px,py,ir+2,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle = "#b46414"; ctx.beginPath(); ctx.arc(px,py,ir,0,Math.PI*2); ctx.fill();
+    drawText("?", px, py, {size:Math.max(10,cellSize*0.35), colour:"#fff", bold:true});
+  }
+}
+
+// ─── SCREENS ───
+function drawNewUser() {
+  ctx.fillStyle = "#231234"; ctx.fillRect(0,0,W,H);
+  drawText("Welcome to Dragon Maze!", W/2, H/2-100, {size:36, colour:"#ffd700", bold:true});
+  drawText("What's your name?", W/2, H/2-40, {size:24, colour:"#add8e6", bold:true});
+  // Input box
+  ctx.fillStyle = "#fff"; roundRect(W/2-180, H/2, 360, 46, 6); ctx.fill();
+  ctx.strokeStyle = "#ffd700"; ctx.lineWidth = 3; roundRect(W/2-180, H/2, 360, 46, 6); ctx.stroke();
+  drawText(newUserName + "|", W/2, H/2+23, {size:26, colour:"#000", bold:true});
+  drawText("Press Enter to start!", W/2, H/2+75, {size:18, colour:"#ccc"});
+  drawCredit();
+}
+
+function drawCustomise() {
+  clearButtons();
+  ctx.fillStyle = "#231234"; ctx.fillRect(0,0,W,H);
+  const scale = Math.min(W/1200, H/800);
+  const S = v => v * scale;
+
+  // Top bar
+  ctx.fillStyle = "#2d1941"; ctx.fillRect(0, 0, W, S(60));
+  drawText("Dragon Maze Adventure!", S(20), S(30), {size:S(32), colour:"#ffd700", bold:true, align:"left"});
+  drawText(`Player: ${activeUser}`, W-S(370), S(28), {size:S(20), colour:"#add8e6", bold:true, align:"left"});
+  const chgBtn = btn(W-S(175), S(14), S(155), S(32), "Change Player", {colour:[120,80,160], textColour:"#fff", fontSize:S(16)});
+
+  // Left panel
+  ctx.fillStyle = "rgba(50,28,72,0.9)"; roundRect(S(20), S(68), S(500), S(575), 8); ctx.fill();
+
+  // Colour
+  drawText("Colour:", S(45), S(85), {size:S(20), colour:"#fff", bold:true, align:"left"});
+  const colNames = Object.keys(DRAGON_COLOURS);
+  colNames.forEach((name, i) => {
+    const row = i>>2, col = i&3;
+    const b = btn(S(45)+col*S(112), S(100)+row*S(38), S(105), S(32), name,
+      {colour:DRAGON_COLOURS[name], textColour:["Black","Blue","Purple"].includes(name)?"#fff":"#000",
+       selected:name===selectedColour, fontSize:S(15), action:()=>{selectedColour=name;saveUserPrefs();}});
+  });
+
+  // Eyes
+  drawText("Eyes:", S(45), S(195), {size:S(20), colour:"#fff", bold:true, align:"left"});
+  Object.keys(EYE_STYLES).forEach((name, i) => {
+    const row = i/3|0, col = i%3;
+    btn(S(45)+col*S(152), S(212)+row*S(38), S(145), S(32), name,
+      {selected:name===selectedEyes, fontSize:S(14), action:()=>{selectedEyes=name;saveUserPrefs();}});
+  });
+
+  // Size
+  drawText("Size:", S(45), S(305), {size:S(20), colour:"#fff", bold:true, align:"left"});
+  Object.keys(SIZES).forEach((name, i) => {
+    btn(S(45)+i*S(120), S(320), S(112), S(32), name,
+      {selected:name===selectedSize, fontSize:S(15), action:()=>{selectedSize=name;saveUserPrefs();}});
+  });
+
+  // Wings
+  btn(S(45), S(370), S(145), S(30), `Wings: ${hasWings?"ON":"OFF"}`,
+    {colour:hasWings?[100,200,100]:[200,100,100], textColour:"#fff", fontSize:S(14),
+     action:()=>{hasWings=!hasWings;saveUserPrefs();}});
+
+  // Challenges
+  btn(S(200), S(370), S(145), S(30), `Challenges: ${challengesEnabled?"ON":"OFF"}`,
+    {colour:challengesEnabled?[100,200,100]:[200,100,100], textColour:"#fff", fontSize:S(14),
+     action:()=>{challengesEnabled=!challengesEnabled;}});
+
+  if (challengesEnabled) {
+    btn(S(360), S(370), S(65), S(30), challengeDensity,
+      {colour:[160,160,160], fontSize:S(13), action:()=>{
+        const d=["Few","Some","Many"]; challengeDensity=d[(d.indexOf(challengeDensity)+1)%3];}});
+    btn(S(432), S(370), S(55), S(30), `${challengeTimeLimit}s`,
+      {colour:[160,160,160], fontSize:S(13), action:()=>{
+        const t=[10,20,30]; challengeTimeLimit=t[(t.indexOf(challengeTimeLimit)+1)%3];}});
+
+    drawText("Tables:", S(45), S(410), {size:S(12), colour:"#ccc", bold:true, align:"left"});
+    for (let n = 2; n <= 12; n++) {
+      const i = n-2, row = i/6|0, col = i%6;
+      const on = challengeTables.has(n);
+      btn(S(45)+col*S(78), S(420)+row*S(28), S(72), S(24), `${n}x ${on?"ON":"OFF"}`,
+        {colour:on?[60,160,60]:[180,60,60], textColour:"#fff", fontSize:S(11),
+         action:()=>{if(on&&challengeTables.size>1)challengeTables.delete(n);else challengeTables.add(n);}});
+    }
+  }
+
+  // Play button + level
+  btn(S(45), S(challengesEnabled?485:415), S(290), S(42), "START ADVENTURE!",
+    {colour:[40,160,40], textColour:"#fff", fontSize:S(20), bold:true,
+     action:()=>{ level=startLevel; startLevelFn(); }});
+
+  const playY = S(challengesEnabled?492:422);
+  btn(S(345), playY, S(30), S(28), "-", {fontSize:S(16), action:()=>{startLevel=Math.max(1,startLevel-1);}});
+  drawText(`Level: ${startLevel}`, S(410), playY+S(14), {size:S(16), colour:"#fff", bold:true});
+  btn(S(465), playY, S(30), S(28), "+", {fontSize:S(16), action:()=>{startLevel=Math.min(20,startLevel+1);}});
+  const [lw,lh] = levelDims(startLevel);
+  drawText(`(${lw}x${lh})`, S(410), playY+S(34), {size:S(12), colour:"#888"});
+
+  // Middle panel — leaderboard
+  ctx.fillStyle = "rgba(50,28,72,0.9)"; roundRect(S(535), S(68), S(255), S(575), 8); ctx.fill();
+  drawText("Leaderboard", S(662), S(85), {size:S(20), colour:"#add8e6", bold:true});
+
+  if (lbExpandedLevel === null) {
+    for (let lv = 1; lv <= 15; lv++) {
+      const [w2,h2] = levelDims(lv);
+      const bk2 = boardKey(w2,h2);
+      const entries = leaderboard[bk2] || [];
+      const ry = S(105) + (lv-1)*S(28);
+      drawText(`Lv ${lv} (${w2}x${h2})`, S(548), ry+S(10), {size:S(13), colour:"#b4a0dc", bold:true, align:"left"});
+      if (entries.length) {
+        drawText(`${entries[0].name.slice(0,8)}  ${entries[0].time.toFixed(1)}s`, S(665), ry+S(10),
+          {size:S(12), colour:lv<=3?"#ffd700":"#fff", align:"left"});
+      } else {
+        drawText("-", S(700), ry+S(10), {size:S(12), colour:"#666"});
+      }
+      // Clickable area
+      btn(S(540), ry, S(245), S(26), "", {alpha:0, action:()=>{lbExpandedLevel=lv;}});
+      ctx.strokeStyle = "rgba(80,50,110,0.5)"; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(S(548),ry+S(24)); ctx.lineTo(S(780),ry+S(24)); ctx.stroke();
+    }
+    drawText("Click a level for top 10", S(662), S(588), {size:S(12), colour:"#666"});
+  } else {
+    const lv2 = lbExpandedLevel;
+    const [w2,h2] = levelDims(lv2);
+    const bk2 = boardKey(w2,h2);
+    drawText(`Level ${lv2} (${w2}x${h2})`, S(662), S(112), {size:S(18), colour:"#ffd700", bold:true});
+    const entries = leaderboard[bk2] || [];
+    const cols = [S(548), S(578), S(700), S(755)];
+    let ey = S(140);
+    ["#","Name","Time","Mv"].forEach((h2,i)=>drawText(h2,cols[i],ey,{size:S(13),colour:"#b4a0dc",bold:true,align:"left"}));
+    ey += S(20);
+    entries.slice(0,10).forEach((e,i) => {
+      const c = i===0?"#ffd700":i<3?"#fff":"#ccc";
+      drawText(`${i+1}`,cols[0],ey,{size:S(12),colour:c,align:"left"});
+      drawText(e.name.slice(0,10),cols[1],ey,{size:S(12),colour:c,align:"left"});
+      drawText(`${e.time.toFixed(1)}s`,cols[2],ey,{size:S(12),colour:c,align:"left"});
+      drawText(`${e.moves}`,cols[3],ey,{size:S(12),colour:c,align:"left"});
+      ey += S(19);
+    });
+    if (!entries.length) drawText("No scores yet",S(662),S(180),{size:S(14),colour:"#666"});
+    btn(S(548), S(570), S(150), S(24), "< Back", {fontSize:S(13), colour:[80,50,120], textColour:"#add8e6", action:()=>{lbExpandedLevel=null;}});
+  }
+
+  // Right panel — preview
+  ctx.fillStyle = "rgba(50,28,72,0.9)"; roundRect(S(805), S(68), S(375), S(575), 8); ctx.fill();
+  drawText(`${activeUser}'s Dragon`, S(992), S(88), {size:S(18), colour:"#ccc", bold:true});
+  const prevScale = SIZES[selectedSize] * S(4);
+  drawDragon(S(992), S(330), prevScale, "right", Date.now()/1000,
+    DRAGON_COLOURS[selectedColour], EYE_STYLES[selectedEyes], hasWings);
+  drawText("Click for full view", S(992), S(560), {size:S(12), colour:"#666"});
+  btn(S(810), S(100), S(365), S(450), "", {alpha:0, action:()=>{fullscreenPreview=true;}});
+
+  // Fullscreen preview
+  if (fullscreenPreview) {
+    ctx.fillStyle = "rgba(15,8,25,0.92)"; ctx.fillRect(0,0,W,H);
+    drawText(`${activeUser}'s Dragon!`, W/2, 40, {size:36, colour:"#ffd700", bold:true});
+    const fsScale = SIZES[selectedSize] * Math.min(W,H)*0.008;
+    drawDragon(W/2, H/2-20, fsScale, "right", Date.now()/1000,
+      DRAGON_COLOURS[selectedColour], EYE_STYLES[selectedEyes], hasWings);
+    drawText("Click anywhere to close", W/2, H-50, {size:20, colour:"#ccc"});
+    btn(0, 0, W, H, "", {alpha:0, action:()=>{fullscreenPreview=false;}});
+  }
+
+  drawCredit();
+  buttons.forEach(drawBtn);
+  // Change player button needs to be on top
+  drawBtn(chgBtn);
+  chgBtn.action = ()=>{state="change_user";};
+}
+
+function drawChangeUser() {
+  drawCustomise();
+  ctx.fillStyle = "rgba(0,0,0,0.7)"; ctx.fillRect(0,0,W,H);
+  clearButtons();
+  const users = Object.keys(profiles.users).sort();
+  const pw=440, ph=Math.min(550, 200+users.length*50+80);
+  const px=W/2-pw/2, py=H/2-ph/2;
+  ctx.fillStyle = "#321c48"; roundRect(px,py,pw,ph,12); ctx.fill();
+  ctx.strokeStyle = "#ffd700"; ctx.lineWidth = 2; roundRect(px,py,pw,ph,12); ctx.stroke();
+  drawText("Choose Player", W/2, py+35, {size:30, colour:"#ffd700", bold:true});
+
+  if (state === "rename_user") {
+    // Rename overlay
+    drawText(`Rename "${renameTarget}":`, W/2, py+90, {size:20, colour:"#add8e6", bold:true});
+    ctx.fillStyle = "#fff"; roundRect(px+30, py+110, pw-60, 42, 6); ctx.fill();
+    ctx.strokeStyle = "#ffd700"; ctx.lineWidth = 2; roundRect(px+30, py+110, pw-60, 42, 6); ctx.stroke();
+    drawText(renameText + "|", W/2, py+131, {size:22, colour:"#000", bold:true});
+    drawText("Enter = confirm  |  ESC = cancel", W/2, py+170, {size:14, colour:"#999"});
+  } else {
+    users.forEach((u, i) => {
+      const ry = py + 80 + i*50;
+      const isAct = u === activeUser;
+      // Select button (wider)
+      btn(px+20, ry, pw-110, 40, u + (isAct?" (current)":""),
+        {colour:isAct?[80,50,110]:[60,35,85], textColour:"#fff", fontSize:18,
+         action:()=>{ activeUser=u; profiles.active=u; saveProfiles(); loadUserPrefs(); state="customise"; }});
+      // Edit name button
+      btn(px+pw-80, ry, 60, 40, "Edit",
+        {colour:[100,80,140], textColour:"#add8e6", fontSize:14,
+         action:()=>{ renameTarget=u; renameText=u; state="rename_user"; }});
+    });
+    btn(px+20, py+80+users.length*50+15, pw-40, 42, "+ New Player",
+      {colour:[40,160,40], textColour:"#fff", fontSize:20,
+       action:()=>{newUserName=""; state="new_user";}});
+  }
+  buttons.forEach(drawBtn);
+  drawText("ESC to close", W/2, py+ph-20, {size:12, colour:"#666"});
+}
+
+function drawShowLeaderboard() {
+  clearButtons();
+  ctx.fillStyle = "#231234"; ctx.fillRect(0,0,W,H);
+  const [w2,h2] = levelDims(level);
+  drawText(`Level ${level} - ${w2}x${h2} Maze`, W/2, 40, {size:34, colour:"#ffd700", bold:true});
+  const bk = boardKey(w2,h2);
+  const entries = leaderboard[bk] || [];
+  if (entries.length) {
+    drawText("Leaderboard - Fastest Times", W/2, 90, {size:22, colour:"#add8e6", bold:true});
+    let y = 130;
+    entries.slice(0,10).forEach((e,i)=>{
+      const c = i===0?"#ffd700":i<3?"#fff":"#ccc";
+      drawText(`${i+1}. ${e.name}`, W/2-80, y, {size:18, colour:c, bold:true, align:"left"});
+      drawText(`${e.time.toFixed(1)}s`, W/2+120, y, {size:18, colour:c, align:"left"});
+      drawText(`${e.moves} moves`, W/2+200, y, {size:18, colour:c, align:"left"});
+      y += 28;
+    });
+  } else {
+    drawText("No scores yet - be the first!", W/2, 200, {size:22, colour:"#ccc"});
+  }
+  drawText("Press any key to start!", W/2, H-70, {size:24, colour:"#32c832", bold:true});
+  drawCredit();
+}
+
+function drawPlaying() {
+  clearButtons();
+  ctx.fillStyle = "#231234"; ctx.fillRect(0,0,W,H);
+
+  // HUD
+  drawText(`Level ${level}`, 60, 25, {size:22, colour:"#ffd700", bold:true, align:"left"});
+  const mins = timeElapsed/60|0, secs = timeElapsed%60;
+  const timeStr = mins > 0 ? `${mins}:${secs<10?"0":""}${secs.toFixed(2)}` : `${secs.toFixed(2)}s`;
+  drawText(timeStr, W/2, 25, {size:30, colour:"#ffe064", bold:true, font:"Courier New"});
+  drawText(`Moves: ${moves}`, 60, 50, {size:16, colour:"#fff", align:"left"});
+  drawText(activeUser, W-60, 20, {size:18, colour:"#add8e6", bold:true, align:"right"});
+
+  drawMaze();
+  // Dragon
+  const dScale = Math.max(0.4, cellSize * 0.018);
+  const dx = mazeOX + dragon.gx*cellSize + cellSize/2;
+  const dy = mazeOY + dragon.gy*cellSize + cellSize/2;
+  drawDragon(dx, dy, dScale, dragon.dir, Date.now()/1000,
+    DRAGON_COLOURS[selectedColour], EYE_STYLES[selectedEyes], hasWings);
+
+  // Challenge overlay
+  if (activeChallenge) {
+    ctx.fillStyle = "rgba(0,0,0,0.75)"; ctx.fillRect(0,0,W,H);
+    if (state === "challenge_result") {
+      drawText(challengeResultMsg, W/2, H/2-60, {size:30, colour:challengeResultColour, bold:true});
+      drawText(challengeResultMsg2, W/2, H/2, {size:22, colour:"#fff", bold:true});
+      drawText("Press any key to continue the quest!", W/2, H/2+60, {size:20, colour:"#ffd700", bold:true});
+    } else {
+      // Timer bar
+      const frac = Math.max(0, activeChallenge.timer / challengeTimeLimit);
+      const barW = 350, barH = 14, barX = W/2-barW/2, barY = H/2-120;
+      ctx.fillStyle = "#3c3c3c"; roundRect(barX,barY,barW,barH,4); ctx.fill();
+      ctx.fillStyle = frac>0.3?"#32c832":frac>0.15?"#dcb41e":"#dc3232";
+      if (frac>0) { roundRect(barX,barY,barW*frac,barH,4); ctx.fill(); }
+      drawText(`${activeChallenge.timer.toFixed(1)}s`, W/2, barY+30, {size:16, colour:"#fff"});
+
+      drawText("Maths Challenge!", W/2, H/2-65, {size:32, colour:"#ffd700", bold:true});
+      drawText(activeChallenge.question, W/2, H/2-20, {size:28, colour:"#fff", bold:true});
+
+      const arrows = ["\u2190 Left", "\u2193 Down", "\u2192 Right"];
+      activeChallenge.answers.forEach((ans, i) => {
+        const bx = W/2 - 270 + i*180;
+        btn(bx, H/2+20, 160, 55, "", {colour:[70,50,110], action:()=>{
+          finishChallenge(activeChallenge.correctIdx === i);
+        }});
+        drawBtn(buttons[buttons.length-1]);
+        drawText(String(ans), bx+80, H/2+38, {size:22, colour:"#fff", bold:true});
+        drawText(`[${i+1}]  ${arrows[i]}`, bx+80, H/2+60, {size:12, colour:"#aaa"});
+      });
+
+      drawText("Click, press 1/2/3, or use arrow keys!", W/2, H/2+95, {size:16, colour:"#ccc"});
+      const rw = TIME_REWARD[challengeTimeLimit] || 5;
+      drawText(`Correct = -${rw}s  |  Wrong = +${rw}s penalty`, W/2, H/2+115, {size:13, colour:"#888"});
+    }
+  }
+
+  drawCredit();
+}
+
+function drawLevelComplete() {
+  drawPlaying();
+  ctx.fillStyle = "rgba(0,0,0,0.65)"; ctx.fillRect(0,0,W,H);
+  clearButtons();
+
+  drawText("Level Complete!", W/2, 90, {size:36, colour:"#ffd700", bold:true});
+  drawText(`Time: ${timeElapsed.toFixed(2)}s`, W/2, 140, {size:22, colour:"#fff", bold:true});
+  drawText(`Moves: ${moves}`, W/2, 175, {size:22, colour:"#fff", bold:true});
+
+  const [w2,h2] = levelDims(level);
+  const bk = boardKey(w2,h2);
+  const entries = leaderboard[bk] || [];
+  // Find rank
+  let rank = null;
+  for (let i=0;i<entries.length;i++) {
+    if (entries[i].name===activeUser && Math.abs(entries[i].time-Math.round(timeElapsed*100)/100)<0.02) { rank=i+1; break; }
+  }
+  if (rank) {
+    const rc = rank===1?"#ffd700":rank===2?"#c8c8c8":rank===3?"#cd7f32":"#add8e6";
+    drawText(`Leaderboard: #${rank}!`, W/2, 220, {size:22, colour:rc, bold:true});
+  }
+
+  drawText(`Level ${level} (${w2}x${h2}) - Top Times`, W/2, 260, {size:18, colour:"#add8e6", bold:true});
+  let ey = 290;
+  entries.slice(0,10).forEach((e,i)=>{
+    const isMe = rank && i+1===rank;
+    const c = isMe?"#64ff64":i===0?"#ffd700":i<3?"#fff":"#ccc";
+    if (isMe) { ctx.fillStyle="rgba(80,50,110,0.4)"; ctx.fillRect(W/2-200,ey-8,400,20); }
+    drawText(`${i+1}. ${e.name.slice(0,10)}`, W/2-100, ey, {size:14, colour:c, bold:true, align:"left"});
+    drawText(`${e.time.toFixed(2)}s`, W/2+80, ey, {size:14, colour:c, align:"left"});
+    drawText(`${e.moves}`, W/2+160, ey, {size:14, colour:c, align:"left"});
+    ey += 20;
+  });
+
+  const btnY = Math.max(ey+30, H-90);
+  btn(W/2-230, btnY, 210, 44, "Next Level", {colour:[40,160,40], textColour:"#fff", fontSize:20,
+    action:()=>{level++;startLevelFn();}});
+  btn(W/2+20, btnY, 210, 44, "Main Menu", {colour:[120,80,160], textColour:"#fff", fontSize:20,
+    action:()=>{state="customise";}});
+  buttons.forEach(drawBtn);
+  drawText("Enter = next level  |  ESC = main menu", W/2, btnY+55, {size:13, colour:"#504060"});
+}
+
+// ─── GAME LOGIC ───
+function startLevelFn() {
+  const [w2,h2] = levelDims(level);
+  maze = generateMaze(w2, h2);
+  endX = w2-1; endY = h2-1;
+  const maxW = W-60, maxH = H-100;
+  cellSize = Math.min(maxW/w2, maxH/h2, 50);
+  mazeOX = (W - w2*cellSize)/2;
+  mazeOY = 70 + (H-70 - h2*cellSize)/2;
+  dragon = {gx:0, gy:0, dir:"right"};
+  moves = 0; timeElapsed = 0; timerPaused = false;
+  challengeSquares = {};
+  activeChallenge = null;
+  if (challengesEnabled && challengeTables.size > 0) {
+    const total = w2*h2 - 2;
+    const count = Math.max(1, (total * (DENSITY_MAP[challengeDensity]||0.1))|0);
+    const cands = [];
+    for (let x=0;x<w2;x++) for(let y=0;y<h2;y++) if(!(x===0&&y===0)&&!(x===w2-1&&y===h2-1)) cands.push([x,y]);
+    for (let i=cands.length-1;i>0;i--){const j=Math.random()*(i+1)|0;[cands[i],cands[j]]=[cands[j],cands[i]];}
+    cands.slice(0,count).forEach(([x,y])=>{challengeSquares[`${x},${y}`]=true;});
+  }
+  state = "show_leaderboard";
+}
+
+function generateChallenge() {
+  const tables = [...challengeTables];
+  const t = tables[Math.random()*tables.length|0];
+  const m = (Math.random()*12|0)+1;
+  const correct = t*m;
+  const wrong = new Set();
+  while(wrong.size<2){
+    const off = [-3,-2,-1,1,2,3,t,-t][Math.random()*8|0];
+    const c = correct+off;
+    if(c>0 && c!==correct && !wrong.has(c)) wrong.add(c);
+  }
+  const answers = [correct, ...wrong].sort(()=>Math.random()-0.5);
+  return {question:`${t} x ${m} = ?`, answers, correctIdx:answers.indexOf(correct), correctVal:correct, timer:challengeTimeLimit};
+}
+
+function finishChallenge(correct) {
+  const rw = TIME_REWARD[challengeTimeLimit] || 5;
+  if (correct) {
+    timeElapsed = Math.max(0, timeElapsed - rw);
+    challengeResultMsg = "Well done! That's correct!";
+    challengeResultMsg2 = `${rw} seconds removed from your time!`;
+    challengeResultColour = "#32dc32";
+  } else {
+    timeElapsed += rw;
+    const q = activeChallenge.question.replace(" = ?","");
+    challengeResultMsg = `Uh Oh! ${q} = ${activeChallenge.correctVal}`;
+    challengeResultMsg2 = `${rw} second penalty added to your time!`;
+    challengeResultColour = "#dc3232";
+  }
+  state = "challenge_result";
+}
+
+function tryMove(dx, dy, dir) {
+  if (!maze.canMove(dragon.gx, dragon.gy, dir)) return;
+  dragon.gx += dx; dragon.gy += dy; dragon.dir = dx>0?"right":dx<0?"left":dy>0?"down":"up";
+  moves++;
+  const key = `${dragon.gx},${dragon.gy}`;
+  if (challengeSquares[key]) {
+    delete challengeSquares[key];
+    activeChallenge = generateChallenge();
+    state = "challenge";
+  } else if (dragon.gx === endX && dragon.gy === endY) {
+    const [w2,h2] = levelDims(level);
+    const bk = boardKey(w2,h2);
+    if (!leaderboard[bk]) leaderboard[bk] = [];
+    leaderboard[bk].push({name:activeUser, time:Math.round(timeElapsed*100)/100, moves});
+    leaderboard[bk].sort((a,b)=>a.time-b.time);
+    leaderboard[bk] = leaderboard[bk].slice(0,10);
+    saveLB();
+    state = "level_complete";
+  }
+}
+
+// ─── INPUT ───
+document.addEventListener("keydown", e => {
+  if (state === "new_user") {
+    if (e.key === "Enter" && newUserName.trim()) {
+      activeUser = newUserName.trim();
+      profiles.active = activeUser;
+      if (!profiles.users[activeUser]) profiles.users[activeUser] = {colour:"Red",eyes:"Big Round",size:"Medium",wings:true};
+      saveProfiles(); loadUserPrefs(); state = "customise";
+    } else if (e.key === "Backspace") { newUserName = newUserName.slice(0,-1);
+    } else if (e.key.length === 1 && newUserName.length < 15) { newUserName += e.key; }
+  } else if (state === "customise") {
+    if (e.key === "Escape") { if (fullscreenPreview) fullscreenPreview = false; }
+  } else if (state === "rename_user") {
+    if (e.key === "Enter" && renameText.trim() && renameText.trim() !== renameTarget) {
+      const newName = renameText.trim();
+      // Rename in profiles
+      profiles.users[newName] = profiles.users[renameTarget];
+      delete profiles.users[renameTarget];
+      if (activeUser === renameTarget) { activeUser = newName; profiles.active = newName; }
+      // Rename in leaderboard
+      for (const key in leaderboard) {
+        leaderboard[key].forEach(e2 => { if (e2.name === renameTarget) e2.name = newName; });
+      }
+      saveProfiles(); saveLB();
+      state = "change_user";
+    } else if (e.key === "Enter" && renameText.trim() === renameTarget) {
+      state = "change_user";
+    } else if (e.key === "Escape") { state = "change_user";
+    } else if (e.key === "Backspace") { renameText = renameText.slice(0,-1);
+    } else if (e.key.length === 1 && renameText.length < 15) { renameText += e.key; }
+  } else if (state === "change_user") {
+    if (e.key === "Escape") state = "customise";
+  } else if (state === "show_leaderboard") {
+    state = "playing";
+  } else if (state === "playing") {
+    if (e.key === "Escape") { state = "customise"; return; }
+    if (activeChallenge && state === "playing") return; // shouldn't happen
+    if (e.key==="ArrowUp"||e.key==="w") tryMove(0,-1,"N");
+    else if (e.key==="ArrowDown"||e.key==="s") tryMove(0,1,"S");
+    else if (e.key==="ArrowLeft"||e.key==="a") tryMove(-1,0,"W");
+    else if (e.key==="ArrowRight"||e.key==="d") tryMove(1,0,"E");
+  } else if (state === "challenge") {
+    if (e.key==="1") finishChallenge(activeChallenge.correctIdx===0);
+    else if (e.key==="2") finishChallenge(activeChallenge.correctIdx===1);
+    else if (e.key==="3") finishChallenge(activeChallenge.correctIdx===2);
+    else if (e.key==="ArrowLeft") finishChallenge(activeChallenge.correctIdx===0);
+    else if (e.key==="ArrowDown") finishChallenge(activeChallenge.correctIdx===1);
+    else if (e.key==="ArrowRight") finishChallenge(activeChallenge.correctIdx===2);
+  } else if (state === "challenge_result") {
+    activeChallenge = null; state = "playing";
+  } else if (state === "level_complete") {
+    if (e.key === "Enter") { level++; startLevelFn(); }
+    else if (e.key === "Escape") state = "customise";
+  }
+});
+
+canvas.addEventListener("click", e => {
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+  if (state === "challenge_result") { activeChallenge = null; state = "playing"; return; }
+  if (state === "show_leaderboard") { state = "playing"; return; }
+  for (let i = buttons.length-1; i >= 0; i--) {
+    const b = buttons[i];
+    if (mx >= b.x && mx <= b.x+b.w && my >= b.y && my <= b.y+b.h && b.action) {
+      b.action(); return;
+    }
+  }
+});
+
+canvas.addEventListener("mousemove", e => {
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+  hoveredBtn = null;
+  for (const b of buttons) {
+    if (mx >= b.x && mx <= b.x+b.w && my >= b.y && my <= b.y+b.h) { hoveredBtn = b; break; }
+  }
+  canvas.style.cursor = hoveredBtn ? "pointer" : "default";
+});
+
+// ─── GAME LOOP ───
+function gameLoop(ts) {
+  const dt = lastTime ? (ts - lastTime)/1000 : 0;
+  lastTime = ts;
+
+  if (state === "playing" && !activeChallenge) {
+    timeElapsed += dt;
+  } else if (state === "challenge" && activeChallenge) {
+    activeChallenge.timer -= dt;
+    if (activeChallenge.timer <= 0) finishChallenge(false);
+  }
+
+  if (state === "new_user") drawNewUser();
+  else if (state === "customise") drawCustomise();
+  else if (state === "change_user" || state === "rename_user") drawChangeUser();
+  else if (state === "show_leaderboard") drawShowLeaderboard();
+  else if (state === "playing" || state === "challenge" || state === "challenge_result") drawPlaying();
+  else if (state === "level_complete") drawLevelComplete();
+
+  requestAnimationFrame(gameLoop);
+}
+
+// Init
+if (activeUser && profiles.users[activeUser]) { loadUserPrefs(); state = "customise"; }
+requestAnimationFrame(gameLoop);
+</script>
+</body>
+</html>
