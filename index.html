@@ -167,272 +167,764 @@ function generateMaze(w, h) {
   return { w, h, grid, canMove(x,y,d) { return x>=0 && x<w && y>=0 && y<h && !grid[y][x].has(d); } };
 }
 
-// ─── DRAGON SPRITES ───
-const dragonSprites = {};
-let spritesLoaded = 0;
-const SPRITE_TOTAL = 16;
-const COLOUR_NAMES_LC = Object.keys(DRAGON_COLOURS).map(n => n.toLowerCase());
-
-function preloadSprites() {
-  for (const name of Object.keys(DRAGON_COLOURS)) {
-    for (const w of ["wings", "nowings"]) {
-      const key = `${name.toLowerCase()}_${w}`;
-      const img = new window.Image();
-      img.onload = () => { spritesLoaded++; };
-      img.src = `sprites/dragon_${key}.png?v=5`;
-      dragonSprites[key] = img;
-    }
-  }
-}
-preloadSprites();
+// ─── PROCEDURAL DRAGON RENDERER ───
+// High-quality dragon drawn with bezier curves, rendered at 4x on offscreen canvas then scaled down
 
 function drawDragon(cx, cy, scale, dir, t, colourArr, eyeStyle, wings) {
-  // Find colour name from array
-  let colName = "red";
-  for (const [name, c] of Object.entries(DRAGON_COLOURS)) {
-    if (c[0]===colourArr[0] && c[1]===colourArr[1] && c[2]===colourArr[2]) { colName = name.toLowerCase(); break; }
-  }
-  const key = `${colName}_${wings ? "wings" : "nowings"}`;
-  const sprite = dragonSprites[key];
-
-  // Render size based on scale
   const renderSize = Math.max(30, scale * 84);
+  const S = renderSize; // total size reference
+  const s = S / 84;    // unit scale (so all coords are in ~84-unit space)
 
-  ctx.save();
-
-  // Bob animation
+  // Bob animation from caller
   const bob = Math.sin(t * 3) * 2 * scale;
 
+  // 4x offscreen canvas for anti-aliasing
+  const ratio = 4;
+  const oW = Math.ceil(S * 2.8 * ratio);
+  const oH = Math.ceil(S * 2.8 * ratio);
+  const oc = document.createElement("canvas");
+  oc.width = oW; oc.height = oH;
+  const c = oc.getContext("2d");
+  c.scale(ratio, ratio);
+
+  // Centre of offscreen canvas in logical coords
+  const ocW = S * 2.8;
+  const ocH = S * 2.8;
+  const mx = ocW / 2;
+  const my = ocH / 2;
+
   // Flip for left-facing
+  const flipX = (dir === "left") ? -1 : 1;
+  // For up/down we shift the head
+  const isVert = (dir === "up" || dir === "down");
+
+  // Colour helpers local to offscreen
+  const col = colourArr;
+  const _rgb = (c2, a) => a !== undefined ? `rgba(${c2[0]},${c2[1]},${c2[2]},${a})` : `rgb(${c2[0]},${c2[1]},${c2[2]})`;
+  const _shade = (c2, amt) => c2.map(v => Math.max(0, Math.min(255, v + amt)));
+
+  // Breathing animation
+  const breathe = Math.sin(t * 2) * 0.5 * s;
+
+  // ─── 1. SHADOW ───
+  c.fillStyle = "rgba(0,0,0,0.18)";
+  c.beginPath();
+  c.ellipse(mx, my + 28*s, 22*s, 5*s, 0, 0, Math.PI*2);
+  c.fill();
+
+  // ─── 2. TAIL ───
+  const tailDir = flipX;
+  c.save();
+  c.lineCap = "round";
+  c.lineJoin = "round";
+  // Tail body - thick bezier curve
+  const tailWave = Math.sin(t * 3) * 3 * s;
+  const tailWave2 = Math.sin(t * 3 + 1.5) * 4 * s;
+  // Draw tail shadow
+  c.strokeStyle = _rgb(_shade(col, -40));
+  c.lineWidth = 7*s;
+  c.beginPath();
+  c.moveTo(mx - tailDir*12*s, my + 4*s);
+  c.bezierCurveTo(
+    mx - tailDir*28*s, my + 2*s + tailWave,
+    mx - tailDir*40*s, my - 8*s + tailWave2,
+    mx - tailDir*52*s, my - 14*s + tailWave
+  );
+  c.stroke();
+  // Tail main
+  c.strokeStyle = _rgb(_shade(col, -10));
+  c.lineWidth = 5.5*s;
+  c.beginPath();
+  c.moveTo(mx - tailDir*12*s, my + 4*s);
+  c.bezierCurveTo(
+    mx - tailDir*28*s, my + 2*s + tailWave,
+    mx - tailDir*40*s, my - 8*s + tailWave2,
+    mx - tailDir*52*s, my - 14*s + tailWave
+  );
+  c.stroke();
+  // Tail highlight
+  c.strokeStyle = _rgb(_shade(col, 15), 0.5);
+  c.lineWidth = 2*s;
+  c.beginPath();
+  c.moveTo(mx - tailDir*14*s, my + 2*s);
+  c.bezierCurveTo(
+    mx - tailDir*28*s, my + 0*s + tailWave,
+    mx - tailDir*40*s, my - 10*s + tailWave2,
+    mx - tailDir*50*s, my - 15*s + tailWave
+  );
+  c.stroke();
+  // Tail spade tip
+  const tipX = mx - tailDir*52*s, tipY = my - 14*s + tailWave;
+  c.fillStyle = _rgb(_shade(col, -50));
+  c.beginPath();
+  c.moveTo(tipX, tipY - 6*s);
+  c.quadraticCurveTo(tipX - tailDir*6*s, tipY - 2*s, tipX - tailDir*12*s, tipY);
+  c.quadraticCurveTo(tipX - tailDir*6*s, tipY + 2*s, tipX, tipY + 6*s);
+  c.quadraticCurveTo(tipX + tailDir*2*s, tipY, tipX, tipY - 6*s);
+  c.fill();
+  // Spade highlight
+  c.fillStyle = _rgb(_shade(col, -30), 0.4);
+  c.beginPath();
+  c.moveTo(tipX, tipY - 4*s);
+  c.quadraticCurveTo(tipX - tailDir*4*s, tipY - 1*s, tipX - tailDir*8*s, tipY);
+  c.quadraticCurveTo(tipX - tailDir*3*s, tipY + 0.5*s, tipX, tipY - 4*s);
+  c.fill();
+  c.restore();
+
+  // ─── 3. WINGS ───
+  if (wings) {
+    const flap = Math.sin(t * 4) * 10 * s;
+    const flap2 = Math.sin(t * 4 + 0.5) * 6 * s;
+    for (const side of [-1, 1]) {
+      c.save();
+      // Wing membrane (back layer, darker)
+      const wingBase = mx + side * 4*s;
+      const wingMid = mx + side * 32*s;
+      const wingTip = mx + side * 48*s;
+      const wingTip2 = mx + side * 42*s;
+      const wingTip3 = mx + side * 30*s;
+
+      // Membrane
+      c.fillStyle = _rgb(_shade(col, -30), 0.45);
+      c.beginPath();
+      c.moveTo(wingBase, my - 6*s);
+      // First finger to tip
+      c.quadraticCurveTo(mx + side*20*s, my - 30*s - flap, wingTip, my - 38*s - flap);
+      // Scalloped edge between fingers
+      c.quadraticCurveTo(mx + side*46*s, my - 28*s - flap*0.8, wingTip2, my - 20*s - flap2);
+      c.quadraticCurveTo(mx + side*38*s, my - 12*s - flap2*0.6, wingTip3, my - 6*s - flap2*0.3);
+      // Scallop back
+      c.quadraticCurveTo(mx + side*20*s, my + 2*s, wingBase, my + 6*s);
+      c.closePath();
+      c.fill();
+
+      // Membrane inner glow
+      c.fillStyle = _rgb(_shade(col, -10), 0.25);
+      c.beginPath();
+      c.moveTo(wingBase + side*2*s, my - 4*s);
+      c.quadraticCurveTo(mx + side*18*s, my - 26*s - flap, wingTip - side*4*s, my - 34*s - flap);
+      c.quadraticCurveTo(mx + side*42*s, my - 24*s - flap*0.8, wingTip2 - side*3*s, my - 17*s - flap2);
+      c.quadraticCurveTo(mx + side*34*s, my - 10*s - flap2*0.6, wingTip3 - side*3*s, my - 4*s - flap2*0.3);
+      c.quadraticCurveTo(mx + side*18*s, my + 2*s, wingBase + side*2*s, my + 4*s);
+      c.closePath();
+      c.fill();
+
+      // Finger bones
+      c.strokeStyle = _rgb(_shade(col, -55));
+      c.lineWidth = 2.5*s;
+      c.lineCap = "round";
+      // Main arm bone
+      c.beginPath();
+      c.moveTo(wingBase, my - 6*s);
+      c.quadraticCurveTo(mx + side*14*s, my - 18*s - flap*0.5, mx + side*24*s, my - 26*s - flap*0.7);
+      c.stroke();
+      // First finger
+      c.lineWidth = 2*s;
+      c.beginPath();
+      c.moveTo(mx + side*24*s, my - 26*s - flap*0.7);
+      c.quadraticCurveTo(mx + side*36*s, my - 34*s - flap*0.9, wingTip, my - 38*s - flap);
+      c.stroke();
+      // Second finger
+      c.beginPath();
+      c.moveTo(mx + side*24*s, my - 26*s - flap*0.7);
+      c.quadraticCurveTo(mx + side*36*s, my - 22*s - flap2*0.8, wingTip2, my - 20*s - flap2);
+      c.stroke();
+      // Third finger
+      c.lineWidth = 1.5*s;
+      c.beginPath();
+      c.moveTo(mx + side*24*s, my - 26*s - flap*0.7);
+      c.quadraticCurveTo(mx + side*28*s, my - 14*s - flap2*0.5, wingTip3, my - 6*s - flap2*0.3);
+      c.stroke();
+
+      // Claw at wing tip
+      c.fillStyle = "#4a4035";
+      c.beginPath();
+      c.moveTo(wingTip, my - 38*s - flap);
+      c.lineTo(wingTip + side*3*s, my - 42*s - flap);
+      c.lineTo(wingTip + side*1*s, my - 37*s - flap);
+      c.fill();
+
+      c.restore();
+    }
+  }
+
+  // ─── 4. HIND LEGS ───
+  for (const legSide of [-1, 1]) {
+    const lx = mx + legSide * 10*s;
+    const ly = my + 12*s;
+    // Upper leg
+    c.fillStyle = _rgb(_shade(col, -25));
+    c.beginPath();
+    c.ellipse(lx, ly, 6*s, 10*s, legSide * 0.15, 0, Math.PI*2);
+    c.fill();
+    // Lower leg
+    c.fillStyle = _rgb(_shade(col, -18));
+    c.beginPath();
+    c.ellipse(lx + legSide*1*s, ly + 8*s, 4.5*s, 5*s, 0, 0, Math.PI*2);
+    c.fill();
+    // Foot
+    c.fillStyle = _rgb(_shade(col, -30));
+    c.beginPath();
+    c.ellipse(lx + legSide*2*s, ly + 13*s, 5.5*s, 3*s, legSide*0.2, 0, Math.PI*2);
+    c.fill();
+    // Claws (3 per foot)
+    for (let ci = -1; ci <= 1; ci++) {
+      const clx = lx + legSide*2*s + ci*3*s;
+      const cly = ly + 15*s;
+      c.fillStyle = "#3a3025";
+      c.beginPath();
+      c.moveTo(clx - 1.2*s, cly);
+      c.quadraticCurveTo(clx, cly + 5*s, clx + 0.5*s, cly + 5.5*s);
+      c.quadraticCurveTo(clx + 1*s, cly + 4*s, clx + 1.2*s, cly);
+      c.fill();
+      // Claw shine
+      c.fillStyle = "rgba(255,255,255,0.15)";
+      c.beginPath();
+      c.moveTo(clx - 0.5*s, cly + 0.5*s);
+      c.quadraticCurveTo(clx, cly + 3*s, clx + 0.3*s, cly + 3.5*s);
+      c.lineTo(clx + 0.8*s, cly + 0.5*s);
+      c.fill();
+    }
+  }
+
+  // ─── 5. BODY (bezier torso) ───
+  // Main body shape using bezier for organic form
+  // Shadow layer
+  c.fillStyle = _rgb(_shade(col, -30));
+  c.beginPath();
+  c.moveTo(mx - 18*s, my - 6*s);
+  c.bezierCurveTo(mx - 22*s, my - 14*s, mx - 10*s, my - 20*s + breathe, mx + 4*s, my - 18*s + breathe);
+  c.bezierCurveTo(mx + 16*s, my - 16*s + breathe, mx + 24*s, my - 8*s, mx + 22*s, my + 4*s);
+  c.bezierCurveTo(mx + 20*s, my + 14*s, mx + 8*s, my + 20*s, mx - 2*s, my + 18*s);
+  c.bezierCurveTo(mx - 14*s, my + 16*s, mx - 22*s, my + 8*s, mx - 18*s, my - 6*s);
+  c.closePath();
+  c.fill();
+
+  // Main body colour
+  c.fillStyle = _rgb(col);
+  c.beginPath();
+  c.moveTo(mx - 17*s, my - 5*s);
+  c.bezierCurveTo(mx - 21*s, my - 13*s, mx - 9*s, my - 19*s + breathe, mx + 4*s, my - 17*s + breathe);
+  c.bezierCurveTo(mx + 15*s, my - 15*s + breathe, mx + 23*s, my - 7*s, mx + 21*s, my + 3*s);
+  c.bezierCurveTo(mx + 19*s, my + 13*s, mx + 7*s, my + 19*s, mx - 2*s, my + 17*s);
+  c.bezierCurveTo(mx - 13*s, my + 15*s, mx - 21*s, my + 7*s, mx - 17*s, my - 5*s);
+  c.closePath();
+  c.fill();
+
+  // Body highlight (top light)
+  c.fillStyle = _rgb(_shade(col, 30), 0.35);
+  c.beginPath();
+  c.moveTo(mx - 12*s, my - 10*s);
+  c.bezierCurveTo(mx - 14*s, my - 16*s, mx - 4*s, my - 18*s + breathe, mx + 6*s, my - 16*s + breathe);
+  c.bezierCurveTo(mx + 14*s, my - 14*s + breathe, mx + 18*s, my - 8*s, mx + 14*s, my - 2*s);
+  c.bezierCurveTo(mx + 8*s, my + 2*s, mx - 6*s, my - 2*s, mx - 12*s, my - 10*s);
+  c.closePath();
+  c.fill();
+
+  // Body outline
+  c.strokeStyle = _rgb(_shade(col, -50), 0.6);
+  c.lineWidth = 1.5*s;
+  c.beginPath();
+  c.moveTo(mx - 17*s, my - 5*s);
+  c.bezierCurveTo(mx - 21*s, my - 13*s, mx - 9*s, my - 19*s + breathe, mx + 4*s, my - 17*s + breathe);
+  c.bezierCurveTo(mx + 15*s, my - 15*s + breathe, mx + 23*s, my - 7*s, mx + 21*s, my + 3*s);
+  c.bezierCurveTo(mx + 19*s, my + 13*s, mx + 7*s, my + 19*s, mx - 2*s, my + 17*s);
+  c.bezierCurveTo(mx - 13*s, my + 15*s, mx - 21*s, my + 7*s, mx - 17*s, my - 5*s);
+  c.closePath();
+  c.stroke();
+
+  // ─── 6. BELLY PLATES ───
+  const bellyCol = _shade(col, 70);
+  const bellyHi = _shade(col, 90);
+  for (let i = 0; i < 6; i++) {
+    const frac = i / 5;
+    const pw = (10 - Math.abs(frac - 0.4) * 14) * s;
+    if (pw < 2*s) continue;
+    const py = my - 6*s + frac * 22*s;
+    const px = mx + 1*s;
+    c.fillStyle = _rgb(i % 2 ? bellyHi : bellyCol, 0.85);
+    c.beginPath();
+    c.ellipse(px, py, Math.max(1, pw), 2.2*s, 0, 0, Math.PI*2);
+    c.fill();
+    // Plate edge highlight
+    c.strokeStyle = _rgb(_shade(bellyCol, 20), 0.3);
+    c.lineWidth = 0.5*s;
+    c.beginPath();
+    c.ellipse(px, py - 0.5*s, Math.max(1, pw * 0.8), 1.2*s, 0, Math.PI, Math.PI*2);
+    c.stroke();
+  }
+
+  // ─── 7. SCALES TEXTURE ───
+  c.fillStyle = _rgb(_shade(col, -20), 0.25);
+  for (let row = 0; row < 6; row++) {
+    for (let col2 = 0; col2 < 7; col2++) {
+      const sx2 = mx - 14*s + (col2 + (row % 2 ? 0.5 : 0)) * 5*s;
+      const sy2 = my - 14*s + row * 5*s;
+      const dx = (sx2 - mx) / (20*s);
+      const dy = (sy2 - my) / (18*s);
+      if (dx*dx + dy*dy < 0.7) {
+        c.beginPath();
+        c.moveTo(sx2, sy2 - 1.5*s);
+        c.quadraticCurveTo(sx2 + 2*s, sy2, sx2, sy2 + 1.5*s);
+        c.quadraticCurveTo(sx2 - 2*s, sy2, sx2, sy2 - 1.5*s);
+        c.fill();
+      }
+    }
+  }
+
+  // ─── 8. FRONT LEGS (arms) ───
+  for (const armSide of [-1, 1]) {
+    const ax = mx + flipX * 14*s + armSide * 3*s;
+    const ay = my + 6*s;
+    // Upper arm
+    c.fillStyle = _rgb(_shade(col, -15));
+    c.beginPath();
+    c.ellipse(ax, ay, 5*s, 7*s, armSide * 0.2, 0, Math.PI*2);
+    c.fill();
+    // Forearm / hand
+    c.fillStyle = _rgb(_shade(col, -8));
+    c.beginPath();
+    c.ellipse(ax + armSide*1*s, ay + 7*s, 4*s, 4*s, 0, 0, Math.PI*2);
+    c.fill();
+    // Small claws
+    for (let ci = -1; ci <= 1; ci++) {
+      const clx = ax + armSide*1*s + ci*2.5*s;
+      const cly = ay + 10*s;
+      c.fillStyle = "#3a3025";
+      c.beginPath();
+      c.moveTo(clx - 0.8*s, cly);
+      c.quadraticCurveTo(clx, cly + 3.5*s, clx + 0.3*s, cly + 4*s);
+      c.quadraticCurveTo(clx + 0.8*s, cly + 3*s, clx + 0.8*s, cly);
+      c.fill();
+    }
+  }
+
+  // ─── 9. NECK ───
+  const headOff = isVert
+    ? { x: 0, y: dir === "up" ? -22*s : 16*s }
+    : { x: flipX * 20*s, y: -10*s };
+
+  const neckEndX = mx + headOff.x * 0.55;
+  const neckEndY = my + headOff.y * 0.55;
+  // Neck shadow
+  c.fillStyle = _rgb(_shade(col, -20));
+  c.beginPath();
+  c.moveTo(mx + flipX*8*s, my - 12*s + breathe);
+  c.quadraticCurveTo(neckEndX, neckEndY - 4*s, mx + headOff.x, my + headOff.y + 6*s);
+  c.quadraticCurveTo(neckEndX + flipX*6*s, neckEndY + 6*s, mx + flipX*12*s, my - 4*s);
+  c.closePath();
+  c.fill();
+  // Neck main
+  c.fillStyle = _rgb(_shade(col, 5));
+  c.beginPath();
+  c.moveTo(mx + flipX*7*s, my - 11*s + breathe);
+  c.quadraticCurveTo(neckEndX - flipX*1*s, neckEndY - 5*s, mx + headOff.x - flipX*1*s, my + headOff.y + 5*s);
+  c.quadraticCurveTo(neckEndX + flipX*5*s, neckEndY + 5*s, mx + flipX*11*s, my - 3*s);
+  c.closePath();
+  c.fill();
+
+  // ─── 10. HEAD ───
+  const hx = mx + headOff.x;
+  const hy = my + headOff.y;
+  const headAngle = isVert ? 0 : flipX * 0.1;
+
+  // Head base (skull) - larger elliptical shape
+  c.save();
+  c.translate(hx, hy);
+  c.rotate(headAngle);
+
+  // Head shadow
+  c.fillStyle = _rgb(_shade(col, -25));
+  c.beginPath();
+  c.ellipse(1*s, 1*s, 13*s, 11*s, 0, 0, Math.PI*2);
+  c.fill();
+  // Head main
+  c.fillStyle = _rgb(_shade(col, 5));
+  c.beginPath();
+  c.ellipse(0, 0, 13*s, 11*s, 0, 0, Math.PI*2);
+  c.fill();
+  // Head highlight
+  c.fillStyle = _rgb(_shade(col, 35), 0.3);
+  c.beginPath();
+  c.ellipse(-2*s, -3*s, 8*s, 5*s, -0.3, 0, Math.PI*2);
+  c.fill();
+  // Head outline
+  c.strokeStyle = _rgb(_shade(col, -45), 0.5);
+  c.lineWidth = 1.2*s;
+  c.beginPath();
+  c.ellipse(0, 0, 13*s, 11*s, 0, 0, Math.PI*2);
+  c.stroke();
+
+  // ─── SNOUT / JAW ───
+  const snoutDir = isVert ? (dir === "up" ? -1 : 1) : 1;
+  const snoutX = isVert ? 0 : flipX * 12*s;
+  const snoutY = isVert ? snoutDir * 10*s : 4*s;
+  // Note: we're in head-local rotated coords, snout extends forward
+
+  // Upper jaw
+  c.fillStyle = _rgb(_shade(col, 10));
+  c.beginPath();
+  if (isVert) {
+    c.ellipse(snoutX, snoutY, 8*s, 6*s, 0, 0, Math.PI*2);
+  } else {
+    c.ellipse(snoutX, snoutY - 1*s, 9*s, 5.5*s, flipX * 0.15, 0, Math.PI*2);
+  }
+  c.fill();
+
+  // Lower jaw (slightly separated for open mouth look)
+  c.fillStyle = _rgb(_shade(col, -5));
+  c.beginPath();
+  if (isVert) {
+    c.ellipse(snoutX, snoutY + 2*s, 7*s, 4*s, 0, 0, Math.PI*2);
+  } else {
+    c.ellipse(snoutX - flipX*1*s, snoutY + 3*s, 7.5*s, 3.5*s, flipX * 0.1, 0, Math.PI*2);
+  }
+  c.fill();
+
+  // Mouth line
+  c.strokeStyle = _rgb(_shade(col, -50), 0.7);
+  c.lineWidth = 1*s;
+  c.beginPath();
+  if (isVert) {
+    c.moveTo(snoutX - 6*s, snoutY + 1*s);
+    c.quadraticCurveTo(snoutX, snoutY + 2.5*s, snoutX + 6*s, snoutY + 1*s);
+  } else {
+    const mouthStartX = snoutX - flipX*3*s;
+    c.moveTo(mouthStartX, snoutY + 1*s);
+    c.quadraticCurveTo(snoutX + flipX*4*s, snoutY + 2*s, snoutX + flipX*8*s, snoutY + 0.5*s);
+  }
+  c.stroke();
+
+  // TEETH along jaw line
+  c.fillStyle = "#f0ece0";
+  const teethCount = 5;
+  for (let ti = 0; ti < teethCount; ti++) {
+    const tf = ti / (teethCount - 1);
+    let tx, ty, tSize;
+    if (isVert) {
+      tx = snoutX - 5*s + tf * 10*s;
+      ty = snoutY + 1.5*s;
+      tSize = (1.5 + Math.sin(tf * Math.PI) * 1) * s;
+    } else {
+      tx = snoutX - flipX*2*s + flipX * tf * 9*s;
+      ty = snoutY + 1.5*s;
+      tSize = (1.5 + Math.sin(tf * Math.PI) * 1.2) * s;
+    }
+    c.beginPath();
+    c.moveTo(tx - 0.8*s, ty);
+    c.lineTo(tx, ty + tSize);
+    c.lineTo(tx + 0.8*s, ty);
+    c.fill();
+  }
+  // Fang (bigger front teeth)
+  if (!isVert) {
+    c.fillStyle = "#f5f2e8";
+    const fangX = snoutX + flipX*6*s;
+    const fangY = snoutY + 1*s;
+    c.beginPath();
+    c.moveTo(fangX - 1*s, fangY);
+    c.lineTo(fangX, fangY + 3.5*s);
+    c.lineTo(fangX + 1*s, fangY);
+    c.fill();
+  }
+
+  // NOSTRILS
+  c.fillStyle = "rgba(20,10,10,0.7)";
+  if (isVert) {
+    c.beginPath(); c.ellipse(snoutX - 3*s, snoutY - 2*s, 1.8*s, 1.2*s, 0, 0, Math.PI*2); c.fill();
+    c.beginPath(); c.ellipse(snoutX + 3*s, snoutY - 2*s, 1.8*s, 1.2*s, 0, 0, Math.PI*2); c.fill();
+  } else {
+    const noseX = snoutX + flipX*7*s;
+    c.beginPath(); c.ellipse(noseX, snoutY - 3*s, 1.8*s, 1.3*s, 0, 0, Math.PI*2); c.fill();
+    c.beginPath(); c.ellipse(noseX, snoutY - 0.5*s, 1.8*s, 1.3*s, 0, 0, Math.PI*2); c.fill();
+    // Nostril smoke wisps
+    c.strokeStyle = "rgba(180,180,180,0.2)";
+    c.lineWidth = 0.8*s;
+    const smokePhase = Math.sin(t * 5);
+    c.beginPath();
+    c.moveTo(noseX + flipX*1*s, snoutY - 3*s);
+    c.quadraticCurveTo(noseX + flipX*(3 + smokePhase)*s, snoutY - 6*s, noseX + flipX*(5 + smokePhase*2)*s, snoutY - 8*s);
+    c.stroke();
+  }
+
+  // Snout ridge highlight
+  c.fillStyle = _rgb(_shade(col, 40), 0.25);
+  c.beginPath();
+  if (isVert) {
+    c.ellipse(snoutX, snoutY - 3*s, 5*s, 2*s, 0, 0, Math.PI*2);
+  } else {
+    c.ellipse(snoutX + flipX*2*s, snoutY - 4*s, 5*s, 2*s, flipX*0.2, 0, Math.PI*2);
+  }
+  c.fill();
+
+  // ─── HORNS ───
+  const hornCol1 = [190, 170, 130];
+  const hornCol2 = [140, 120, 80];
+  for (const hornSide of [-1, 1]) {
+    const hbx = hornSide * 5*s;
+    const hby = -9*s;
+    const hornLen = 16*s;
+    const hornAng = hornSide * 0.4;
+
+    // Horn shadow
+    c.strokeStyle = _rgb(hornCol2);
+    c.lineWidth = 4*s;
+    c.lineCap = "round";
+    c.beginPath();
+    c.moveTo(hbx, hby);
+    c.quadraticCurveTo(
+      hbx + Math.sin(hornAng) * hornLen * 0.5, hby - hornLen * 0.6,
+      hbx + Math.sin(hornAng) * hornLen, hby - hornLen
+    );
+    c.stroke();
+
+    // Horn main
+    c.strokeStyle = _rgb(hornCol1);
+    c.lineWidth = 3*s;
+    c.beginPath();
+    c.moveTo(hbx, hby);
+    c.quadraticCurveTo(
+      hbx + Math.sin(hornAng) * hornLen * 0.5, hby - hornLen * 0.6,
+      hbx + Math.sin(hornAng) * hornLen, hby - hornLen
+    );
+    c.stroke();
+
+    // Horn tip (thinner)
+    c.strokeStyle = _rgb(_shade(hornCol1, 30));
+    c.lineWidth = 1.5*s;
+    c.beginPath();
+    c.moveTo(
+      hbx + Math.sin(hornAng) * hornLen * 0.6, hby - hornLen * 0.7,
+    );
+    c.lineTo(
+      hbx + Math.sin(hornAng) * hornLen, hby - hornLen
+    );
+    c.stroke();
+
+    // Horn ridges
+    c.strokeStyle = _rgb(hornCol2, 0.4);
+    c.lineWidth = 0.8*s;
+    for (let ri = 1; ri <= 4; ri++) {
+      const rf = ri / 5;
+      const rx = hbx + Math.sin(hornAng) * hornLen * rf;
+      const ry = hby - hornLen * rf;
+      const rw = (3.5 - rf * 2) * s;
+      c.beginPath();
+      c.moveTo(rx - rw, ry - 0.5*s);
+      c.lineTo(rx + rw, ry + 0.5*s);
+      c.stroke();
+    }
+  }
+
+  // ─── EYES ───
+  const eyeS = eyeStyle;
+  const sizeMult = {small: 0.6, medium: 0.8, big: 1.0}[eyeS.size] || 1.0;
+  const er = 5.5 * s * sizeMult;
+  let eyePositions;
+  if (isVert) {
+    eyePositions = [[-5*s, -4*s], [5*s, -4*s]];
+  } else {
+    // Side view - one eye visible (slightly offset for depth)
+    eyePositions = [[flipX * 5*s, -4*s], [flipX * 3*s, -1*s]];
+  }
+
+  for (let ei = 0; ei < eyePositions.length; ei++) {
+    const [ex, ey] = eyePositions[ei];
+    const isBackEye = !isVert && ei === 1;
+    const eyeR = isBackEye ? er * 0.8 : er;
+
+    // Eye socket (indentation)
+    c.fillStyle = _rgb(_shade(col, -35));
+    c.beginPath();
+    c.arc(ex, ey, eyeR + 2.5*s, 0, Math.PI*2);
+    c.fill();
+
+    // Glow effect behind eye
+    const glowGrad = c.createRadialGradient(ex, ey, eyeR*0.5, ex, ey, eyeR + 4*s);
+    glowGrad.addColorStop(0, _rgb(eyeS.colour, 0.3));
+    glowGrad.addColorStop(1, "rgba(0,0,0,0)");
+    c.fillStyle = glowGrad;
+    c.beginPath();
+    c.arc(ex, ey, eyeR + 4*s, 0, Math.PI*2);
+    c.fill();
+
+    if (eyeS.shape === "round") {
+      // White sclera
+      c.fillStyle = "#fcfaf0";
+      c.beginPath(); c.arc(ex, ey, eyeR, 0, Math.PI*2); c.fill();
+      // Iris gradient
+      const irisGrad = c.createRadialGradient(ex, ey, 0, ex, ey, eyeR*0.65);
+      irisGrad.addColorStop(0, _rgb(_shade(eyeS.colour, 40)));
+      irisGrad.addColorStop(0.6, _rgb(eyeS.colour));
+      irisGrad.addColorStop(1, _rgb(_shade(eyeS.colour, -30)));
+      c.fillStyle = irisGrad;
+      c.beginPath(); c.arc(ex, ey, eyeR*0.65, 0, Math.PI*2); c.fill();
+      // Pupil
+      c.fillStyle = "#050505";
+      c.beginPath(); c.arc(ex, ey, eyeR*0.28, 0, Math.PI*2); c.fill();
+      // Specular highlights
+      c.fillStyle = "rgba(255,255,255,0.9)";
+      c.beginPath(); c.arc(ex - eyeR*0.25, ey - eyeR*0.25, eyeR*0.2, 0, Math.PI*2); c.fill();
+      c.fillStyle = "rgba(255,255,255,0.5)";
+      c.beginPath(); c.arc(ex + eyeR*0.15, ey + eyeR*0.2, eyeR*0.08, 0, Math.PI*2); c.fill();
+
+    } else if (eyeS.shape === "cat") {
+      // Cat eye - vertical slit pupil
+      const catGrad = c.createRadialGradient(ex, ey, 0, ex, ey, eyeR);
+      catGrad.addColorStop(0, _rgb(_shade(eyeS.colour, 60)));
+      catGrad.addColorStop(0.5, _rgb(eyeS.colour));
+      catGrad.addColorStop(1, _rgb(_shade(eyeS.colour, -20)));
+      c.fillStyle = catGrad;
+      c.beginPath(); c.arc(ex, ey, eyeR, 0, Math.PI*2); c.fill();
+      // Vertical slit pupil
+      c.fillStyle = "#050505";
+      c.beginPath();
+      c.moveTo(ex, ey - eyeR*0.85);
+      c.quadraticCurveTo(ex + eyeR*0.25, ey, ex, ey + eyeR*0.85);
+      c.quadraticCurveTo(ex - eyeR*0.25, ey, ex, ey - eyeR*0.85);
+      c.fill();
+      // Highlights
+      c.fillStyle = "rgba(255,255,255,0.7)";
+      c.beginPath(); c.arc(ex - eyeR*0.3, ey - eyeR*0.3, eyeR*0.15, 0, Math.PI*2); c.fill();
+
+    } else if (eyeS.shape === "angry") {
+      // Angry eye - small iris, heavy brow
+      c.fillStyle = "#fcf0e0";
+      c.beginPath(); c.arc(ex, ey, eyeR, 0, Math.PI*2); c.fill();
+      // Bloodshot veins
+      c.strokeStyle = "rgba(200,50,50,0.3)";
+      c.lineWidth = 0.4*s;
+      for (let vi = 0; vi < 5; vi++) {
+        const va = vi * Math.PI*2/5 + 0.3;
+        c.beginPath();
+        c.moveTo(ex + Math.cos(va)*eyeR*0.5, ey + Math.sin(va)*eyeR*0.5);
+        c.lineTo(ex + Math.cos(va)*eyeR*0.95, ey + Math.sin(va)*eyeR*0.95);
+        c.stroke();
+      }
+      // Small intense iris
+      c.fillStyle = _rgb(eyeS.colour);
+      c.beginPath(); c.arc(ex, ey, eyeR*0.45, 0, Math.PI*2); c.fill();
+      c.fillStyle = "#050505";
+      c.beginPath(); c.arc(ex, ey, eyeR*0.18, 0, Math.PI*2); c.fill();
+      // Angry brow
+      c.strokeStyle = _rgb(_shade(col, -50));
+      c.lineWidth = 2.5*s;
+      c.lineCap = "round";
+      c.beginPath();
+      c.moveTo(ex - eyeR*1.1, ey - eyeR*0.6);
+      c.lineTo(ex + eyeR*0.8, ey - eyeR*1.2);
+      c.stroke();
+      // Highlight
+      c.fillStyle = "rgba(255,255,255,0.6)";
+      c.beginPath(); c.arc(ex - eyeR*0.15, ey - eyeR*0.15, eyeR*0.1, 0, Math.PI*2); c.fill();
+
+    } else if (eyeS.shape === "cute") {
+      // Cute eye - big shiny with sparkles
+      c.fillStyle = "#fcfaf5";
+      c.beginPath(); c.arc(ex, ey, eyeR, 0, Math.PI*2); c.fill();
+      // Large coloured iris
+      const cuteGrad = c.createRadialGradient(ex, ey-eyeR*0.1, 0, ex, ey, eyeR*0.8);
+      cuteGrad.addColorStop(0, _rgb(_shade(eyeS.colour, 50)));
+      cuteGrad.addColorStop(0.7, _rgb(eyeS.colour));
+      cuteGrad.addColorStop(1, _rgb(_shade(eyeS.colour, -20)));
+      c.fillStyle = cuteGrad;
+      c.beginPath(); c.arc(ex, ey, eyeR*0.8, 0, Math.PI*2); c.fill();
+      // Pupil
+      c.fillStyle = "#050505";
+      c.beginPath(); c.arc(ex, ey + eyeR*0.05, eyeR*0.32, 0, Math.PI*2); c.fill();
+      // Big sparkle highlight
+      c.fillStyle = "rgba(255,255,255,0.95)";
+      c.beginPath(); c.arc(ex - eyeR*0.28, ey - eyeR*0.28, eyeR*0.3, 0, Math.PI*2); c.fill();
+      // Secondary sparkle
+      c.fillStyle = "rgba(255,255,255,0.75)";
+      c.beginPath(); c.arc(ex + eyeR*0.22, ey + eyeR*0.18, eyeR*0.14, 0, Math.PI*2); c.fill();
+      // Tiny sparkle
+      c.fillStyle = "rgba(255,255,255,0.6)";
+      c.beginPath(); c.arc(ex - eyeR*0.1, ey + eyeR*0.35, eyeR*0.06, 0, Math.PI*2); c.fill();
+
+    } else if (eyeS.shape === "star") {
+      // Star eye - star-shaped pupil with golden glow
+      const starGrad = c.createRadialGradient(ex, ey, 0, ex, ey, eyeR);
+      starGrad.addColorStop(0, _rgb(_shade(eyeS.colour, 60)));
+      starGrad.addColorStop(0.6, _rgb(eyeS.colour));
+      starGrad.addColorStop(1, _rgb(_shade(eyeS.colour, -10)));
+      c.fillStyle = starGrad;
+      c.beginPath(); c.arc(ex, ey, eyeR, 0, Math.PI*2); c.fill();
+      // Star pupil
+      c.fillStyle = "#0a0a0a";
+      c.beginPath();
+      for (let si = 0; si < 10; si++) {
+        const sa = -Math.PI/2 + si * Math.PI/5;
+        const sr = si % 2 ? eyeR*0.55 : eyeR*0.22;
+        si ? c.lineTo(ex + sr*Math.cos(sa), ey + sr*Math.sin(sa))
+           : c.moveTo(ex + sr*Math.cos(sa), ey + sr*Math.sin(sa));
+      }
+      c.closePath();
+      c.fill();
+      // Sparkle in each star point
+      c.fillStyle = "rgba(255,255,200,0.5)";
+      for (let si = 0; si < 5; si++) {
+        const sa = -Math.PI/2 + si * Math.PI*2/5;
+        const sr = eyeR * 0.42;
+        c.beginPath();
+        c.arc(ex + sr*Math.cos(sa), ey + sr*Math.sin(sa), eyeR*0.06, 0, Math.PI*2);
+        c.fill();
+      }
+      // Centre highlight
+      c.fillStyle = "rgba(255,255,255,0.7)";
+      c.beginPath(); c.arc(ex - eyeR*0.15, ey - eyeR*0.2, eyeR*0.12, 0, Math.PI*2); c.fill();
+    }
+
+    // Eye outline
+    c.strokeStyle = _rgb(_shade(col, -50), 0.7);
+    c.lineWidth = 1*s;
+    c.beginPath(); c.arc(ex, ey, eyeR, 0, Math.PI*2); c.stroke();
+  }
+
+  c.restore(); // end head rotation
+
+  // ─── 11. SPINES along back ───
+  // Draw spines from head down the neck and along the back
+  c.fillStyle = _rgb(_shade(col, -45));
+  const spineCount = 9;
+  for (let si = 0; si < spineCount; si++) {
+    const sf = si / (spineCount - 1);
+    // Interpolate from head to tail-start
+    const spx = hx + (mx - flipX*8*s - hx) * sf;
+    const spy = hy + (my + 2*s - hy) * sf;
+    // Spine height varies - tallest in middle
+    const spH = (4 + Math.sin(sf * Math.PI) * 6) * s;
+    const spW = (1.5 + Math.sin(sf * Math.PI) * 1) * s;
+    // Point upward and slightly back
+    c.beginPath();
+    c.moveTo(spx - spW, spy);
+    c.quadraticCurveTo(spx - spW*0.3, spy - spH*0.6, spx, spy - spH);
+    c.quadraticCurveTo(spx + spW*0.3, spy - spH*0.6, spx + spW, spy);
+    c.fill();
+    // Spine highlight
+    c.fillStyle = _rgb(_shade(col, -25), 0.4);
+    c.beginPath();
+    c.moveTo(spx - spW*0.5, spy);
+    c.lineTo(spx - spW*0.2, spy - spH*0.8);
+    c.lineTo(spx + spW*0.1, spy);
+    c.fill();
+    c.fillStyle = _rgb(_shade(col, -45));
+  }
+
+  // ─── DRAW TO MAIN CANVAS ───
+  ctx.save();
+  const finalX = cx - ocW/2;
+  const finalY = cy + bob - ocH/2;
+
   if (dir === "left") {
     ctx.translate(cx, cy + bob);
     ctx.scale(-1, 1);
     ctx.translate(-cx, -(cy + bob));
   }
 
-  if (sprite && sprite.complete && sprite.naturalWidth > 0) {
-    ctx.drawImage(sprite, cx - renderSize/2, cy + bob - renderSize/2, renderSize, renderSize);
-  } else {
-    // Fallback while loading
-    ctx.fillStyle = rgb(colourArr, 0.5);
-    ctx.beginPath(); ctx.arc(cx, cy + bob, renderSize/3, 0, Math.PI*2); ctx.fill();
-    drawText("...", cx, cy + bob, {size: renderSize/4, colour: "#fff"});
-  }
-
+  ctx.drawImage(oc, finalX, finalY, ocW, ocH);
   ctx.restore();
 }
-
-// Keep old function signature compatible - unused but prevents errors
-function drawDragonOld(cx, cy, scale, dir, t, colour, eyeStyle, wings) {
-  const s = scale;
-  const r = colour[0], g = colour[1], b = colour[2];
-  const bob = Math.sin(t * 3) * 2 * s;
-  cy += bob;
-  ctx.save();
-
-  // Shadow
-  ctx.fillStyle = "rgba(0,0,0,0.15)";
-  ctx.beginPath(); ctx.ellipse(cx, cy + 22*s, 18*s, 4*s, 0, 0, Math.PI*2); ctx.fill();
-
-  // Tail
-  const tailSign = dir === "left" ? 1 : -1;
-  ctx.strokeStyle = rgb(shade(colour, -15));
-  ctx.lineWidth = 5*s;
-  ctx.lineCap = "round";
-  ctx.beginPath();
-  ctx.moveTo(cx + tailSign*14*s, cy + 2*s);
-  for (let i = 1; i <= 8; i++) {
-    const tt = i/8;
-    const tx = cx + tailSign*(14*s + tt*28*s);
-    const ty = cy + 2*s + Math.sin(t*4 + tt*3)*4*s*tt + tt*6*s - tt*tt*10*s;
-    ctx.lineTo(tx, ty);
-  }
-  ctx.stroke();
-  // Tail spade
-  const tipX = cx + tailSign*42*s, tipY = cy - 2*s;
-  ctx.fillStyle = rgb(shade(colour, -40));
-  ctx.beginPath();
-  ctx.moveTo(tipX, tipY-5*s); ctx.lineTo(tipX+tailSign*10*s, tipY); ctx.lineTo(tipX, tipY+5*s);
-  ctx.fill();
-
-  // Wings
-  if (wings) {
-    const flap = Math.sin(t * 5) * 8 * s;
-    for (const side of [-1, 1]) {
-      ctx.fillStyle = rgb(shade(colour, -25), 0.6);
-      ctx.beginPath();
-      ctx.moveTo(cx + side*8*s, cy - 4*s);
-      ctx.lineTo(cx + side*35*s, cy - 28*s - flap);
-      ctx.lineTo(cx + side*38*s, cy - 12*s - flap*0.6);
-      ctx.lineTo(cx + side*30*s, cy + 2*s - flap*0.3);
-      ctx.lineTo(cx + side*6*s, cy + 5*s);
-      ctx.fill();
-      // Bones
-      ctx.strokeStyle = rgb(shade(colour, -55));
-      ctx.lineWidth = 2*s;
-      ctx.beginPath();
-      ctx.moveTo(cx+side*8*s, cy-4*s);
-      ctx.lineTo(cx+side*25*s, cy-20*s-flap*0.8);
-      ctx.lineTo(cx+side*35*s, cy-28*s-flap);
-      ctx.moveTo(cx+side*25*s, cy-20*s-flap*0.8);
-      ctx.lineTo(cx+side*38*s, cy-12*s-flap*0.6);
-      ctx.stroke();
-    }
-  }
-
-  // Legs
-  for (const lx of [-8*s, 8*s]) {
-    ctx.fillStyle = rgb(shade(colour, -20));
-    ctx.beginPath(); ctx.ellipse(cx+lx, cy+14*s, 5*s, 8*s, 0, 0, Math.PI*2); ctx.fill();
-    // Claws
-    for (const co of [-3*s, 0, 3*s]) {
-      ctx.fillStyle = "#3a3530";
-      ctx.beginPath();
-      ctx.moveTo(cx+lx+co-1.5*s, cy+20*s); ctx.lineTo(cx+lx+co, cy+25*s); ctx.lineTo(cx+lx+co+1.5*s, cy+20*s);
-      ctx.fill();
-    }
-  }
-
-  // Body gradient
-  for (let i = 0; i < 5; i++) {
-    const t2 = i/4;
-    ctx.fillStyle = rgb(shade(colour, -20 + t2*40));
-    ctx.beginPath();
-    ctx.ellipse(cx + i*0.5*s, cy + i*0.5*s, (22-i*1.5)*s, (18-i*1.5)*s, 0, 0, Math.PI*2);
-    ctx.fill();
-  }
-  // Body outline
-  ctx.strokeStyle = rgb(shade(colour, -50)); ctx.lineWidth = 2*s;
-  ctx.beginPath(); ctx.ellipse(cx, cy, 22*s, 18*s, 0, 0, Math.PI*2); ctx.stroke();
-
-  // Belly plates
-  const bellyC = shade(colour, 65);
-  for (let i = 0; i < 4; i++) {
-    const pw = (12 - Math.abs(i-1.5)*3)*s;
-    const py = cy - 3*s + i*5*s;
-    ctx.fillStyle = rgb(i%2?shade(bellyC,10):bellyC);
-    ctx.beginPath(); ctx.ellipse(cx, py, pw, 3*s, 0, 0, Math.PI*2); ctx.fill();
-  }
-
-  // Scales
-  ctx.fillStyle = rgb(shade(colour, -25), 0.3);
-  for (let row=0; row<4; row++) {
-    for (let col=0; col<5; col++) {
-      const sx = cx - 10*s + (col + (row%2?0.5:0))*5*s;
-      const sy = cy - 8*s + row*4.5*s;
-      const dx = (sx-cx)/(22*s), dy = (sy-cy)/(18*s);
-      if (dx*dx+dy*dy < 0.6) {
-        ctx.beginPath(); ctx.ellipse(sx, sy, 2.5*s, 1.5*s, 0, 0, Math.PI*2); ctx.fill();
-      }
-    }
-  }
-
-  // Head
-  const hOff = {right:[16,-8], left:[-16,-8], up:[0,-18], down:[0,12]};
-  const [hox, hoy] = (hOff[dir] || hOff.right).map(v => v*s);
-  const hx = cx + hox, hy = cy + hoy;
-  // Head shape
-  for (let i=0; i<4; i++) {
-    ctx.fillStyle = rgb(shade(colour, -10+i*15));
-    ctx.beginPath(); ctx.ellipse(hx+i*0.3*s, hy+i*0.3*s, (12-i)*s, (10-i)*s, 0, 0, Math.PI*2); ctx.fill();
-  }
-  ctx.strokeStyle = rgb(shade(colour,-45)); ctx.lineWidth = 1.5*s;
-  ctx.beginPath(); ctx.ellipse(hx, hy, 12*s, 10*s, 0, 0, Math.PI*2); ctx.stroke();
-
-  // Snout
-  const sOff = {right:[10,3], left:[-10,3], up:[0,-10], down:[0,10]};
-  const [sox, soy] = (sOff[dir]||sOff.right).map(v=>v*s);
-  ctx.fillStyle = rgb(shade(colour, 20));
-  ctx.beginPath(); ctx.ellipse(hx+sox, hy+soy, 7*s, 5*s, 0, 0, Math.PI*2); ctx.fill();
-
-  // Nostrils
-  ctx.fillStyle = "#2a1414";
-  if (dir==="right"||dir==="left") {
-    const ns = dir==="right"?1:-1;
-    ctx.beginPath(); ctx.ellipse(hx+sox+ns*5*s, hy+soy-2*s, 1.8*s, 1.2*s, 0, 0, Math.PI*2); ctx.fill();
-    ctx.beginPath(); ctx.ellipse(hx+sox+ns*5*s, hy+soy+2*s, 1.8*s, 1.2*s, 0, 0, Math.PI*2); ctx.fill();
-  }
-
-  // Horns
-  const hornC = "#bda882";
-  for (const hAngle of [0.4, 0.55]) {
-    const hornLen = (hAngle<0.5?14:10)*s;
-    ctx.strokeStyle = hornC; ctx.lineWidth = 3*s; ctx.lineCap = "round";
-    ctx.beginPath();
-    ctx.moveTo(hx, hy-9*s);
-    ctx.quadraticCurveTo(hx + Math.cos(hAngle*Math.PI)*hornLen*0.6, hy-9*s - Math.sin(hAngle*Math.PI)*hornLen*0.6,
-      hx + Math.cos(hAngle*Math.PI)*hornLen, hy-9*s - Math.sin(hAngle*Math.PI)*hornLen);
-    ctx.stroke();
-  }
-
-  // Spines
-  ctx.fillStyle = rgb(shade(colour, -45));
-  for (let i=0; i<6; i++) {
-    const tt = i/5;
-    const spx = hx + (cx-hx)*tt*1.2;
-    const spy = hy + (cy-hy)*tt - 14*s*(1-Math.abs(tt-0.5)*2);
-    const spH = (6 + Math.abs(3-i)*2)*s;
-    ctx.beginPath();
-    ctx.moveTo(spx-2*s, spy); ctx.lineTo(spx, spy-spH); ctx.lineTo(spx+2*s, spy);
-    ctx.fill();
-  }
-
-  // Eyes
-  const eyeS = eyeStyle;
-  const sizeMult = {small:0.6, medium:0.8, big:1.0}[eyeS.size];
-  const er = 5*s*sizeMult;
-  let eyes;
-  if (dir==="right"||dir==="left") {
-    const es = dir==="right"?1:-1;
-    eyes = [[hx+es*4*s, hy-4*s], [hx+es*4*s, hy+2*s]];
-  } else if (dir==="up") {
-    eyes = [[hx-4*s, hy-3*s], [hx+4*s, hy-3*s]];
-  } else {
-    eyes = [[hx-4*s, hy+3*s], [hx+4*s, hy+3*s]];
-  }
-  for (const [ex, ey] of eyes) {
-    // Socket
-    ctx.fillStyle = rgb(shade(colour, -35));
-    ctx.beginPath(); ctx.arc(ex, ey, er+2*s, 0, Math.PI*2); ctx.fill();
-
-    if (eyeS.shape === "round") {
-      ctx.fillStyle = "#fcfaf0"; ctx.beginPath(); ctx.arc(ex,ey,er,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle = rgb(eyeS.colour); ctx.beginPath(); ctx.arc(ex,ey,er*0.6,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle = "#050505"; ctx.beginPath(); ctx.arc(ex,ey,er*0.28,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle = "rgba(255,255,255,0.85)"; ctx.beginPath(); ctx.arc(ex-er*0.25,ey-er*0.25,er*0.18,0,Math.PI*2); ctx.fill();
-    } else if (eyeS.shape === "cat") {
-      ctx.fillStyle = rgb(eyeS.colour); ctx.beginPath(); ctx.arc(ex,ey,er,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle = rgb(shade(eyeS.colour,40)); ctx.beginPath(); ctx.arc(ex,ey,er*0.75,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle = "#050505"; ctx.fillRect(ex-1*s, ey-er+2*s, 2*s, er*2-4*s);
-    } else if (eyeS.shape === "angry") {
-      ctx.fillStyle = "#fcf0e8"; ctx.beginPath(); ctx.arc(ex,ey,er,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle = rgb(eyeS.colour); ctx.beginPath(); ctx.arc(ex,ey,er*0.5,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle = "#050505"; ctx.beginPath(); ctx.arc(ex,ey,er*0.2,0,Math.PI*2); ctx.fill();
-      ctx.strokeStyle = "#1e1e1e"; ctx.lineWidth = 2*s;
-      ctx.beginPath(); ctx.moveTo(ex-er,ey-er-1*s); ctx.lineTo(ex+er,ey-er-4*s); ctx.stroke();
-    } else if (eyeS.shape === "cute") {
-      ctx.fillStyle = "#fcfaf5"; ctx.beginPath(); ctx.arc(ex,ey,er,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle = rgb(eyeS.colour); ctx.beginPath(); ctx.arc(ex,ey,er*0.75,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle = "#050505"; ctx.beginPath(); ctx.arc(ex,ey+er*0.1,er*0.3,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle = "rgba(255,255,255,0.9)"; ctx.beginPath(); ctx.arc(ex-er*0.25,ey-er*0.25,er*0.28,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle = "rgba(255,255,255,0.7)"; ctx.beginPath(); ctx.arc(ex+er*0.2,ey+er*0.15,er*0.1,0,Math.PI*2); ctx.fill();
-    } else if (eyeS.shape === "star") {
-      ctx.fillStyle = rgb(eyeS.colour); ctx.beginPath(); ctx.arc(ex,ey,er,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle = "#0a0a0a";
-      ctx.beginPath();
-      for (let i=0;i<10;i++){
-        const a=-Math.PI/2+i*Math.PI/5;
-        const rr=i%2?er*0.5:er*0.22;
-        i?ctx.lineTo(ex+rr*Math.cos(a),ey+rr*Math.sin(a)):ctx.moveTo(ex+rr*Math.cos(a),ey+rr*Math.sin(a));
-      }
-      ctx.fill();
-    }
-    ctx.strokeStyle = "#1e1e1e"; ctx.lineWidth = 1*s;
-    ctx.beginPath(); ctx.arc(ex,ey,er,0,Math.PI*2); ctx.stroke();
-  }
-
-  ctx.restore();
-} // end drawDragonOld
 
 // ─── UI HELPERS ───
 let hoveredBtn = null;
