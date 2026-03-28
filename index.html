@@ -59,6 +59,12 @@ resize();
 // ─── STATE ───
 let state = "new_user"; // new_user, customise, show_leaderboard, playing, challenge, challenge_result, level_complete, how_to_play
 let profiles = JSON.parse(localStorage.getItem("dm_profiles") || '{"users":{},"active":""}');
+// Leaderboard version — bump this to force clear old scores
+const LB_VERSION = 2;
+if (parseInt(localStorage.getItem("dm_lb_version")||"0") < LB_VERSION) {
+  localStorage.removeItem("dm_leaderboard");
+  localStorage.setItem("dm_lb_version", String(LB_VERSION));
+}
 let leaderboard = JSON.parse(localStorage.getItem("dm_leaderboard") || "{}");
 const LB_API = "https://quoted-christine-northern-diamonds.trycloudflare.com/api/leaderboard";
 
@@ -100,12 +106,14 @@ async function fetchLeaderboard() {
   } catch(e) { console.warn("Could not fetch shared leaderboard:", e); }
 }
 async function submitScore(boardKey, name, time, moves) {
+  // Include dragon config with score
+  const dragon = {col: selectedColour, eyes: selectedEyes, size: selectedSize, wings: hasWings};
+  const rt = Math.round(time*100)/100;
   // Update local immediately
   if (!leaderboard[boardKey]) leaderboard[boardKey] = [];
-  const rt = Math.round(time*100)/100;
   const ex = leaderboard[boardKey].find(e => e.name === name);
-  if (ex) { if (rt < ex.time) { ex.time = rt; ex.moves = moves; } }
-  else { leaderboard[boardKey].push({name, time:rt, moves}); }
+  if (ex) { if (rt < ex.time) { ex.time = rt; ex.moves = moves; ex.dragon = dragon; } }
+  else { leaderboard[boardKey].push({name, time:rt, moves, dragon}); }
   leaderboard[boardKey].sort((a,b) => a.time - b.time);
   leaderboard[boardKey] = leaderboard[boardKey].slice(0, 10);
   localStorage.setItem("dm_leaderboard", JSON.stringify(leaderboard));
@@ -114,7 +122,7 @@ async function submitScore(boardKey, name, time, moves) {
     await fetch(`${LB_API}/${boardKey}`, {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({name, time: rt, moves})
+      body: JSON.stringify({name, time: rt, moves, dragon})
     });
     fetchLeaderboard(); // Refresh from server
   } catch(e) { console.warn("Score submit failed:", e); }
@@ -203,6 +211,13 @@ function generateMaze(w, h) {
 
 // ─── PROCEDURAL DRAGON RENDERER ───
 // High-quality dragon drawn with bezier curves, rendered at 4x on offscreen canvas then scaled down
+
+function drawMiniDragon(x, y, size, dragonData) {
+  if (!dragonData) return;
+  const col = DRAGON_COLOURS[dragonData.col] || [200,200,200];
+  const eyes = EYE_STYLES[dragonData.eyes] || EYE_STYLES["Big Round"];
+  drawDragon(x, y, size * 0.012, "right", Date.now()/1000, col, eyes, dragonData.wings !== false);
+}
 
 function drawDragon(cx, cy, scale, dir, t, colourArr, eyeStyle, wings) {
   const renderSize = Math.max(30, scale * 84);
@@ -1364,7 +1379,8 @@ function drawShowLeaderboard() {
     const lh = mob ? 26 : 30;
     entries.slice(0,10).forEach((e,i)=>{
       const c = i===0?"#ffd700":i<3?"#fff":"#ccc";
-      drawText(`${i+1}. ${e.name.slice(0,10)}`, nameX, y, {size:fs, colour:c, bold:true, align:"left"});
+      if (e.dragon) drawMiniDragon(nameX-5, y, mob?12:16, e.dragon);
+      drawText(`${i+1}. ${e.name.slice(0,10)}`, nameX+(mob?12:18), y, {size:fs, colour:c, bold:true, align:"left"});
       drawText(`${e.time.toFixed(1)}s`, timeX, y, {size:fs, colour:c, align:"right"});
       drawText(`${e.moves}`, moveX, y, {size:fs-2, colour:c, align:"right"});
       y += lh;
@@ -1530,11 +1546,12 @@ function drawLevelComplete() {
   entries.slice(0,10).forEach((e,i)=>{
     const isMe = rank && i+1===rank;
     const c = isMe?"#64ff64":i===0?"#ffd700":i<3?"#fff":"#ccc";
-    if (isMe) { ctx.fillStyle="rgba(80,50,110,0.4)"; ctx.fillRect(W/2-200,ey-8,400,20); }
-    drawText(`${i+1}. ${e.name.slice(0,10)}`, W/2-100, ey, {size:14, colour:c, bold:true, align:"left"});
+    if (isMe) { ctx.fillStyle="rgba(80,50,110,0.4)"; ctx.fillRect(W/2-210,ey-10,430,22); }
+    if (e.dragon) drawMiniDragon(W/2-195, ey, 14, e.dragon);
+    drawText(`${i+1}. ${e.name.slice(0,10)}`, W/2-175, ey, {size:14, colour:c, bold:true, align:"left"});
     drawText(`${e.time.toFixed(2)}s`, W/2+80, ey, {size:14, colour:c, align:"left"});
     drawText(`${e.moves}`, W/2+160, ey, {size:14, colour:c, align:"left"});
-    ey += 20;
+    ey += 22;
   });
 
   const btnY = Math.max(ey+30, H-90);
