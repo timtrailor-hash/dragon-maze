@@ -47,12 +47,12 @@ resize();
 let state = "new_user"; // new_user, customise, show_leaderboard, playing, challenge, challenge_result, level_complete
 let profiles = JSON.parse(localStorage.getItem("dm_profiles") || '{"users":{},"active":""}');
 let leaderboard = JSON.parse(localStorage.getItem("dm_leaderboard") || "{}");
-const LB_API = "https://athletics-elements-zen-barcelona.trycloudflare.com/api/leaderboard";
+const LB_BLOB = "https://jsonblob.com/api/jsonBlob/019d34e6-2551-7fe1-a443-16d89b19f30d";
 
 // Fetch shared leaderboard on load
 async function fetchLeaderboard() {
   try {
-    const res = await fetch(LB_API);
+    const res = await fetch(LB_BLOB, {headers:{"Accept":"application/json"}});
     if (res.ok) {
       const data = await res.json();
       leaderboard = data;
@@ -60,9 +60,27 @@ async function fetchLeaderboard() {
     }
   } catch(e) { console.warn("Could not fetch shared leaderboard:", e); }
 }
+async function submitScore(boardKey, name, time, moves) {
+  try {
+    // Read current data, merge new score, write back
+    const res = await fetch(LB_BLOB, {headers:{"Accept":"application/json"}});
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data[boardKey]) data[boardKey] = [];
+    data[boardKey].push({name, time: Math.round(time*100)/100, moves});
+    data[boardKey].sort((a,b) => a.time - b.time);
+    data[boardKey] = data[boardKey].slice(0, 10);
+    await fetch(LB_BLOB, {
+      method: "PUT",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(data)
+    });
+    leaderboard = data;
+    localStorage.setItem("dm_leaderboard", JSON.stringify(data));
+  } catch(e) { console.warn("Score submit failed:", e); }
+}
 fetchLeaderboard();
-// Refresh every 30s
-setInterval(fetchLeaderboard, 30000);
+setInterval(fetchLeaderboard, 15000);
 let activeUser = profiles.active || "";
 let selectedColour = "Red";
 let selectedEyes = "Big Round";
@@ -892,14 +910,11 @@ function tryMove(dx, dy, dir) {
     const [w2,h2] = levelDims(level);
     const bk = boardKey(w2,h2);
     if (!leaderboard[bk]) leaderboard[bk] = [];
-    const score = {name:activeUser, time:Math.round(timeElapsed*100)/100, moves};
-    leaderboard[bk].push(score);
+    leaderboard[bk].push({name:activeUser, time:Math.round(timeElapsed*100)/100, moves});
     leaderboard[bk].sort((a,b)=>a.time-b.time);
     leaderboard[bk] = leaderboard[bk].slice(0,10);
     saveLB();
-    // Submit to shared server
-    fetch(`${LB_API}/${bk}`, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(score)})
-      .then(()=>fetchLeaderboard()).catch(e=>console.warn("Score submit failed:",e));
+    submitScore(bk, activeUser, timeElapsed, moves);
     state = "level_complete";
   }
 }
