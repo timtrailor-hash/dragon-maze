@@ -118,11 +118,11 @@ function shade(c, amt) { return c.map(v => Math.max(0, Math.min(255, v + amt)));
 function saveProfiles() { localStorage.setItem("dm_profiles", JSON.stringify(profiles)); }
 function saveLB() { localStorage.setItem("dm_leaderboard", JSON.stringify(leaderboard)); }
 function boardKey(w, h) { return `${w}x${h}`; }
+const LEVEL_DIMS = [
+  [6,6],[7,7],[9,9],[10,10],[11,11],[14,14],[16,16],[18,15],[19,15],[20,15]
+];
 function levelDims(lv) {
-  if (lv <= 2) return [5+lv, 5+lv];
-  if (lv <= 5) return [6+lv, 6+lv];
-  if (lv <= 8) return [8+lv, 8+lv];
-  return [Math.min(20, 8+lv), Math.min(15, 6+lv)];
+  return LEVEL_DIMS[Math.min(lv, LEVEL_DIMS.length) - 1] || LEVEL_DIMS[LEVEL_DIMS.length-1];
 }
 function loadUserPrefs() {
   const p = profiles.users[activeUser] || {};
@@ -607,63 +607,67 @@ function drawCustomise() {
   const playY = S(challengesEnabled?492:422);
   btn(S(345), playY, S(30), S(28), "-", {fontSize:S(16), action:()=>{startLevel=Math.max(1,startLevel-1);}});
   drawText(`Level: ${startLevel}`, S(410), playY+S(14), {size:S(16), colour:"#fff", bold:true});
-  btn(S(465), playY, S(30), S(28), "+", {fontSize:S(16), action:()=>{startLevel=Math.min(20,startLevel+1);}});
+  btn(S(465), playY, S(30), S(28), "+", {fontSize:S(16), action:()=>{startLevel=Math.min(10,startLevel+1);}});
   const [lw,lh] = levelDims(startLevel);
   drawText(`(${lw}x${lh})`, S(410), playY+S(34), {size:S(12), colour:"#888"});
 
-  // Middle panel — leaderboard
-  ctx.fillStyle = "rgba(50,28,72,0.9)"; roundRect(S(535), S(68), S(255), S(575), 8); ctx.fill();
-  drawText("Leaderboard", S(662), S(85), {size:S(20), colour:"#add8e6", bold:true});
+  // Right panel — dragon on top, leaderboard below
+  const rpX = S(535), rpW = S(645);
+  ctx.fillStyle = "rgba(50,28,72,0.9)"; roundRect(rpX, S(68), rpW, S(575), 8); ctx.fill();
+  const rpCx = rpX + rpW/2;
+
+  // Dragon preview (top half)
+  drawText(`${activeUser}'s Dragon`, rpCx, S(85), {size:S(18), colour:"#ccc", bold:true});
+  const prevScale = SIZES[selectedSize] * S(4);
+  drawDragon(rpCx, S(210), prevScale, "right", Date.now()/1000,
+    DRAGON_COLOURS[selectedColour], EYE_STYLES[selectedEyes], hasWings);
+  drawText("Click dragon for full view", rpCx, S(330), {size:S(11), colour:"#666"});
+  btn(rpX, S(90), rpW, S(240), "", {alpha:0, action:()=>{fullscreenPreview=true;}});
+
+  // Leaderboard (bottom half)
+  ctx.strokeStyle = "rgba(80,50,110,0.6)"; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(rpX+S(15), S(345)); ctx.lineTo(rpX+rpW-S(15), S(345)); ctx.stroke();
+  drawText("Leaderboard", rpCx, S(360), {size:S(16), colour:"#add8e6", bold:true});
 
   if (lbExpandedLevel === null) {
-    for (let lv = 1; lv <= 15; lv++) {
+    for (let lv = 1; lv <= 10; lv++) {
       const [w2,h2] = levelDims(lv);
       const bk2 = boardKey(w2,h2);
       const entries = leaderboard[bk2] || [];
-      const ry = S(105) + (lv-1)*S(28);
-      drawText(`Lv ${lv} (${w2}x${h2})`, S(548), ry+S(10), {size:S(13), colour:"#b4a0dc", bold:true, align:"left"});
+      const ry = S(375) + (lv-1)*S(22);
+      drawText(`Lv ${lv} (${w2}x${h2})`, rpX+S(15), ry+S(9), {size:S(11), colour:"#b4a0dc", bold:true, align:"left"});
       if (entries.length) {
-        drawText(`${entries[0].name.slice(0,8)}  ${entries[0].time.toFixed(1)}s`, S(665), ry+S(10),
-          {size:S(12), colour:lv<=3?"#ffd700":"#fff", align:"left"});
+        drawText(`${entries[0].name.slice(0,8)}  ${entries[0].time.toFixed(1)}s`, rpX+S(180), ry+S(9),
+          {size:S(11), colour:lv<=3?"#ffd700":"#fff", align:"left"});
       } else {
-        drawText("-", S(700), ry+S(10), {size:S(12), colour:"#666"});
+        drawText("-", rpX+S(220), ry+S(9), {size:S(11), colour:"#666"});
       }
-      // Clickable area
-      btn(S(540), ry, S(245), S(26), "", {alpha:0, action:()=>{lbExpandedLevel=lv;}});
-      ctx.strokeStyle = "rgba(80,50,110,0.5)"; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(S(548),ry+S(24)); ctx.lineTo(S(780),ry+S(24)); ctx.stroke();
+      btn(rpX, ry, rpW, S(21), "", {alpha:0, action:(function(l){return ()=>{lbExpandedLevel=l;};})(lv)});
+      ctx.strokeStyle = "rgba(80,50,110,0.3)"; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(rpX+S(15),ry+S(20)); ctx.lineTo(rpX+rpW-S(15),ry+S(20)); ctx.stroke();
     }
-    drawText("Click a level for top 10", S(662), S(588), {size:S(12), colour:"#666"});
+    drawText("Click a level for top 10", rpCx, S(605), {size:S(10), colour:"#666"});
   } else {
     const lv2 = lbExpandedLevel;
     const [w2,h2] = levelDims(lv2);
     const bk2 = boardKey(w2,h2);
-    drawText(`Level ${lv2} (${w2}x${h2})`, S(662), S(112), {size:S(18), colour:"#ffd700", bold:true});
+    drawText(`Level ${lv2} (${w2}x${h2})`, rpCx, S(385), {size:S(15), colour:"#ffd700", bold:true});
     const entries = leaderboard[bk2] || [];
-    const cols = [S(548), S(578), S(700), S(755)];
-    let ey = S(140);
-    ["#","Name","Time","Mv"].forEach((h2,i)=>drawText(h2,cols[i],ey,{size:S(13),colour:"#b4a0dc",bold:true,align:"left"}));
-    ey += S(20);
+    const cols = [rpX+S(15), rpX+S(40), rpX+S(170), rpX+S(230)];
+    let ey = S(405);
+    ["#","Name","Time","Mv"].forEach((h2,i)=>drawText(h2,cols[i],ey,{size:S(11),colour:"#b4a0dc",bold:true,align:"left"}));
+    ey += S(17);
     entries.slice(0,10).forEach((e,i) => {
       const c = i===0?"#ffd700":i<3?"#fff":"#ccc";
-      drawText(`${i+1}`,cols[0],ey,{size:S(12),colour:c,align:"left"});
-      drawText(e.name.slice(0,10),cols[1],ey,{size:S(12),colour:c,align:"left"});
-      drawText(`${e.time.toFixed(1)}s`,cols[2],ey,{size:S(12),colour:c,align:"left"});
-      drawText(`${e.moves}`,cols[3],ey,{size:S(12),colour:c,align:"left"});
-      ey += S(19);
+      drawText(`${i+1}`,cols[0],ey,{size:S(11),colour:c,align:"left"});
+      drawText(e.name.slice(0,10),cols[1],ey,{size:S(11),colour:c,align:"left"});
+      drawText(`${e.time.toFixed(1)}s`,cols[2],ey,{size:S(11),colour:c,align:"left"});
+      drawText(`${e.moves}`,cols[3],ey,{size:S(11),colour:c,align:"left"});
+      ey += S(17);
     });
-    if (!entries.length) drawText("No scores yet",S(662),S(180),{size:S(14),colour:"#666"});
-    btn(S(548), S(570), S(150), S(24), "< Back", {fontSize:S(13), colour:[80,50,120], textColour:"#add8e6", action:()=>{lbExpandedLevel=null;}});
+    if (!entries.length) drawText("No scores yet",rpCx,S(430),{size:S(12),colour:"#666"});
+    btn(rpX+S(15), S(595), S(120), S(20), "< Back", {fontSize:S(11), colour:[80,50,120], textColour:"#add8e6", action:()=>{lbExpandedLevel=null;}});
   }
-
-  // Right panel — preview
-  ctx.fillStyle = "rgba(50,28,72,0.9)"; roundRect(S(805), S(68), S(375), S(575), 8); ctx.fill();
-  drawText(`${activeUser}'s Dragon`, S(992), S(88), {size:S(18), colour:"#ccc", bold:true});
-  const prevScale = SIZES[selectedSize] * S(4);
-  drawDragon(S(992), S(330), prevScale, "right", Date.now()/1000,
-    DRAGON_COLOURS[selectedColour], EYE_STYLES[selectedEyes], hasWings);
-  drawText("Click for full view", S(992), S(560), {size:S(12), colour:"#666"});
-  btn(S(810), S(100), S(365), S(450), "", {alpha:0, action:()=>{fullscreenPreview=true;}});
 
   // Fullscreen preview
   if (fullscreenPreview) {
