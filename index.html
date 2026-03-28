@@ -1372,7 +1372,7 @@ function drawPlaying() {
 
   // HUD
   const mob = W < 700;
-  btn(W-70, 6, 62, 26, "Menu", {colour:[80,50,120], textColour:"#add8e6", fontSize:12, action:()=>{state="customise";}});
+  btn(W-80, 5, 72, 30, "< Exit", {colour:[140,50,50], textColour:"#fff", fontSize:14, action:()=>{state="customise";}});
   drawText(`Lv ${level}`, 15, 18, {size:mob?16:22, colour:"#ffd700", bold:true, align:"left"});
   const mins = timeElapsed/60|0, secs = timeElapsed%60;
   const timeStr = mins > 0 ? `${mins}:${secs<10?"0":""}${secs.toFixed(2)}` : `${secs.toFixed(2)}s`;
@@ -1579,7 +1579,8 @@ document.addEventListener("keydown", e => {
   } else if (state === "change_user") {
     if (e.key === "Escape") state = "customise";
   } else if (state === "show_leaderboard") {
-    state = "playing";
+    if (e.key === "Enter" || e.key === " ") state = "playing";
+    else if (e.key === "Escape") state = "customise";
   } else if (state === "playing") {
     if (e.key === "Escape") { state = "customise"; return; }
     if (activeChallenge && state === "playing") return; // shouldn't happen
@@ -1606,7 +1607,7 @@ canvas.addEventListener("click", e => {
   const rect = canvas.getBoundingClientRect();
   const mx = e.clientX - rect.left, my = e.clientY - rect.top;
   if (state === "challenge_result") { activeChallenge = null; state = "playing"; return; }
-  if (state === "show_leaderboard") { state = "playing"; return; }
+  // show_leaderboard now uses buttons — don't short-circuit here
   for (let i = buttons.length-1; i >= 0; i--) {
     const b = buttons[i];
     if (mx >= b.x && mx <= b.x+b.w && my >= b.y && my <= b.y+b.h && b.action) {
@@ -1639,7 +1640,7 @@ canvas.addEventListener("touchstart", e => {
 
   // Simulate click for buttons
   if (state === "challenge_result") { activeChallenge = null; state = "playing"; return; }
-  if (state === "show_leaderboard") { state = "playing"; return; }
+  // show_leaderboard now uses buttons — check them below, don't short-circuit
 
   // Check D-pad (only while playing and no challenge active)
   if ((state === "playing") && !activeChallenge && isMobile) {
