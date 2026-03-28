@@ -67,7 +67,13 @@ async function submitScore(boardKey, name, time, moves) {
     if (!res.ok) return;
     const data = await res.json();
     if (!data[boardKey]) data[boardKey] = [];
-    data[boardKey].push({name, time: Math.round(time*100)/100, moves});
+    const roundedTime = Math.round(time*100)/100;
+    const existing = data[boardKey].find(e => e.name === name);
+    if (existing) {
+      if (roundedTime < existing.time) { existing.time = roundedTime; existing.moves = moves; }
+    } else {
+      data[boardKey].push({name, time: roundedTime, moves});
+    }
     data[boardKey].sort((a,b) => a.time - b.time);
     data[boardKey] = data[boardKey].slice(0, 10);
     await fetch(LB_BLOB, {
@@ -910,7 +916,13 @@ function tryMove(dx, dy, dir) {
     const [w2,h2] = levelDims(level);
     const bk = boardKey(w2,h2);
     if (!leaderboard[bk]) leaderboard[bk] = [];
-    leaderboard[bk].push({name:activeUser, time:Math.round(timeElapsed*100)/100, moves});
+    const rt = Math.round(timeElapsed*100)/100;
+    const ex = leaderboard[bk].find(e => e.name === activeUser);
+    if (ex) {
+      if (rt < ex.time) { ex.time = rt; ex.moves = moves; }
+    } else {
+      leaderboard[bk].push({name:activeUser, time:rt, moves});
+    }
     leaderboard[bk].sort((a,b)=>a.time-b.time);
     leaderboard[bk] = leaderboard[bk].slice(0,10);
     saveLB();
