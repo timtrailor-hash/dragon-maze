@@ -2,16 +2,20 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Dragon Maze Adventure!</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body { background: #231234; font-family: Arial, sans-serif; color: #fff; overflow: hidden; }
+html, body { background: #231234; font-family: Arial, sans-serif; color: #fff; overflow: hidden; touch-action: none; -webkit-user-select: none; user-select: none; height: 100%; }
 canvas { display: block; margin: 0 auto; }
+#mobileInput { position: absolute; left: -9999px; top: 0; opacity: 0; font-size: 16px; }
 </style>
 </head>
 <body>
 <canvas id="game"></canvas>
+<input id="mobileInput" type="text" autocomplete="off" autocorrect="off" autocapitalize="off">
 <script>
 "use strict";
 
@@ -1028,7 +1032,9 @@ function drawNewUser() {
   ctx.fillStyle = "#fff"; roundRect(W/2-180, H/2, 360, 46, 6); ctx.fill();
   ctx.strokeStyle = "#ffd700"; ctx.lineWidth = 3; roundRect(W/2-180, H/2, 360, 46, 6); ctx.stroke();
   drawText(newUserName + "|", W/2, H/2+23, {size:26, colour:"#000", bold:true});
-  drawText("Press Enter to start!", W/2, H/2+75, {size:18, colour:"#ccc"});
+  drawText(isMobile ? "Tap the box to type, then press Go" : "Press Enter to start!", W/2, H/2+75, {size:18, colour:"#ccc"});
+  // Invisible button to focus mobile keyboard
+  btn(W/2-180, H/2, 360, 46, "", {alpha:0, action:()=>{focusMobileInput(newUserName);}});
   drawCredit();
 }
 
@@ -1217,11 +1223,11 @@ function drawChangeUser() {
       // Edit name button
       btn(px+pw-80, ry, 60, 40, "Edit",
         {colour:[100,80,140], textColour:"#add8e6", fontSize:14,
-         action:()=>{ renameTarget=u; renameText=u; state="rename_user"; }});
+         action:()=>{ renameTarget=u; renameText=u; state="rename_user"; focusMobileInput(u); }});
     });
     btn(px+20, py+80+users.length*50+15, pw-40, 42, "+ New Player",
       {colour:[40,160,40], textColour:"#fff", fontSize:20,
-       action:()=>{newUserName=""; state="new_user";}});
+       action:()=>{newUserName=""; state="new_user"; focusMobileInput("");}});
   }
   buttons.forEach(drawBtn);
   drawText("ESC to close", W/2, py+ph-20, {size:12, colour:"#666"});
@@ -1306,6 +1312,9 @@ function drawPlaying() {
       drawText(`Correct = -${rw}s off your time!  |  Wrong = no penalty`, W/2, H/2+115, {size:13, colour:"#888"});
     }
   }
+
+  // Mobile D-pad (only when not in a challenge)
+  if (!activeChallenge) drawDpad();
 
   drawCredit();
 }
@@ -1514,6 +1523,125 @@ canvas.addEventListener("mousemove", e => {
   }
   canvas.style.cursor = hoveredBtn ? "pointer" : "default";
 });
+
+// ─── MOBILE SUPPORT ───
+const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || ('ontouchstart' in window);
+const mobileInput = document.getElementById("mobileInput");
+
+// Touch → click (tap)
+canvas.addEventListener("touchstart", e => {
+  e.preventDefault();
+  const touch = e.touches[0];
+  const rect = canvas.getBoundingClientRect();
+  const mx = touch.clientX - rect.left, my = touch.clientY - rect.top;
+
+  // Simulate click for buttons
+  if (state === "challenge_result") { activeChallenge = null; state = "playing"; return; }
+  if (state === "show_leaderboard") { state = "playing"; return; }
+
+  // Check D-pad (only while playing and no challenge active)
+  if ((state === "playing") && !activeChallenge && isMobile) {
+    const dpadCx = W - 80, dpadCy = H - 100, dpadR = 35;
+    const ddx = mx - dpadCx, ddy = my - dpadCy;
+    if (Math.abs(ddx) + Math.abs(ddy) < dpadR * 3) {
+      if (ddy < -dpadR && Math.abs(ddx) < dpadR * 1.5) { tryMove(0,-1,"N"); return; }
+      if (ddy > dpadR && Math.abs(ddx) < dpadR * 1.5) { tryMove(0,1,"S"); return; }
+      if (ddx < -dpadR && Math.abs(ddy) < dpadR * 1.5) { tryMove(-1,0,"W"); return; }
+      if (ddx > dpadR && Math.abs(ddy) < dpadR * 1.5) { tryMove(1,0,"E"); return; }
+    }
+  }
+
+  // Check challenge answer buttons
+  if (state === "challenge" && activeChallenge) {
+    for (let i = 0; i < 3; i++) {
+      const bx = W/2 - 270 + i*180;
+      if (mx >= bx && mx <= bx+160 && my >= H/2+20 && my <= H/2+75) {
+        finishChallenge(activeChallenge.correctIdx === i);
+        return;
+      }
+    }
+    return;
+  }
+
+  for (let i = buttons.length-1; i >= 0; i--) {
+    const b = buttons[i];
+    if (mx >= b.x && mx <= b.x+b.w && my >= b.y && my <= b.y+b.h && b.action) {
+      b.action(); return;
+    }
+  }
+}, {passive: false});
+
+// Swipe detection for maze movement
+let touchStartX = 0, touchStartY = 0, touchStartTime = 0;
+canvas.addEventListener("touchstart", e2 => {
+  const t2 = e2.touches[0];
+  touchStartX = t2.clientX; touchStartY = t2.clientY; touchStartTime = Date.now();
+}, {passive: true});
+
+canvas.addEventListener("touchend", e2 => {
+  if (state !== "playing" || activeChallenge) return;
+  const t2 = e2.changedTouches[0];
+  const dx = t2.clientX - touchStartX, dy = t2.clientY - touchStartY;
+  const dist = Math.sqrt(dx*dx + dy*dy);
+  const elapsed = Date.now() - touchStartTime;
+  // Only count as swipe if fast and far enough, and not near D-pad
+  if (dist > 30 && elapsed < 400 && touchStartX < W - 160) {
+    if (Math.abs(dx) > Math.abs(dy)) {
+      dx > 0 ? tryMove(1,0,"E") : tryMove(-1,0,"W");
+    } else {
+      dy > 0 ? tryMove(0,1,"S") : tryMove(0,-1,"N");
+    }
+  }
+}, {passive: true});
+
+// Prevent default touch behaviours
+document.addEventListener("touchmove", e => e.preventDefault(), {passive: false});
+
+// Mobile text input handling (for name entry)
+mobileInput.addEventListener("input", e => {
+  const val = mobileInput.value;
+  if (state === "new_user") { newUserName = val.slice(0, 15); }
+  else if (state === "rename_user") { renameText = val.slice(0, 15); }
+});
+mobileInput.addEventListener("keydown", e => {
+  if (e.key === "Enter") {
+    // Trigger the same logic as the main keydown handler
+    document.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter"}));
+    mobileInput.blur();
+    mobileInput.value = "";
+  }
+});
+
+// Focus mobile input when entering name states
+function focusMobileInput(prefill) {
+  if (isMobile) {
+    mobileInput.value = prefill || "";
+    mobileInput.style.left = "0";
+    mobileInput.focus();
+    setTimeout(() => { mobileInput.style.left = "-9999px"; }, 100);
+  }
+}
+
+// Draw D-pad on screen during gameplay (mobile only)
+function drawDpad() {
+  if (!isMobile) return;
+  const cx2 = W - 80, cy2 = H - 100, r = 30;
+  const alpha = 0.35;
+
+  // Background circle
+  ctx.fillStyle = `rgba(60,40,80,${alpha})`;
+  ctx.beginPath(); ctx.arc(cx2, cy2, r*2.5, 0, Math.PI*2); ctx.fill();
+
+  // Up
+  ctx.fillStyle = `rgba(200,180,255,${alpha+0.1})`;
+  ctx.beginPath(); ctx.moveTo(cx2, cy2-r*2); ctx.lineTo(cx2-r*0.7, cy2-r*0.8); ctx.lineTo(cx2+r*0.7, cy2-r*0.8); ctx.fill();
+  // Down
+  ctx.beginPath(); ctx.moveTo(cx2, cy2+r*2); ctx.lineTo(cx2-r*0.7, cy2+r*0.8); ctx.lineTo(cx2+r*0.7, cy2+r*0.8); ctx.fill();
+  // Left
+  ctx.beginPath(); ctx.moveTo(cx2-r*2, cy2); ctx.lineTo(cx2-r*0.8, cy2-r*0.7); ctx.lineTo(cx2-r*0.8, cy2+r*0.7); ctx.fill();
+  // Right
+  ctx.beginPath(); ctx.moveTo(cx2+r*2, cy2); ctx.lineTo(cx2+r*0.8, cy2-r*0.7); ctx.lineTo(cx2+r*0.8, cy2+r*0.7); ctx.fill();
+}
 
 // ─── GAME LOOP ───
 function gameLoop(ts) {
