@@ -179,7 +179,7 @@ function preloadSprites() {
       const key = `${name.toLowerCase()}_${w}`;
       const img = new window.Image();
       img.onload = () => { spritesLoaded++; };
-      img.src = `sprites/dragon_${key}.png`;
+      img.src = `sprites/dragon_${key}.png?v=5`;
       dragonSprites[key] = img;
     }
   }
