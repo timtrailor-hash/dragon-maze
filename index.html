@@ -1132,6 +1132,10 @@ function drawNewUser() {
     action:()=>{if(!hasName) return; activeUser=newUserName.trim(); profiles.active=activeUser;
       if(!profiles.users[activeUser]) profiles.users[activeUser]={colour:"Red",eyes:"Big Round",size:"Medium",wings:true};
       saveProfiles(); loadUserPrefs(); state="customise";}});
+  // Back button (only if there's already an active user)
+  if (profiles.active && Object.keys(profiles.users).length > 0) {
+    btn(15, 15, 90, 34, "< Back", {colour:[120,60,60], textColour:"#fff", fontSize:14, action:()=>{state="customise";}});
+  }
   drawCredit();
   buttons.forEach(drawBtn);
 }
@@ -1233,7 +1237,7 @@ function drawCustomise() {
         const entries = leaderboard[boardKey(w2,h2)] || [];
         drawText(`Lv${lv}`, pad+4, y+8, {size:11, colour:"#b4a0dc", bold:true, align:"left"});
         if (entries.length) {
-          if (entries[0].dragon) drawMiniDragon(pad+45, y+8, 9, entries[0].dragon, entries[0].name);
+          if (entries[0].dragon) drawMiniDragon(pad+45, y+8, 14, entries[0].dragon, entries[0].name);
           drawText(`${entries[0].name.slice(0,6)} ${entries[0].time.toFixed(1)}s`, pad+60, y+8, {size:11, colour:lv<=3?"#ffd700":"#fff", align:"left"});
         } else {
           drawText("-", pad+60, y+8, {size:11, colour:"#666", align:"left"});
@@ -1338,7 +1342,7 @@ function drawCustomise() {
         const ry = S(375) + (lv-1)*S(22);
         drawText(`Lv ${lv} (${w2}x${h2})`, rpX+S(15), ry+S(9), {size:S(11), colour:"#b4a0dc", bold:true, align:"left"});
         if (entries.length) {
-          if (entries[0].dragon) drawMiniDragon(rpX+S(165), ry+S(9), S(8), entries[0].dragon, entries[0].name);
+          if (entries[0].dragon) drawMiniDragon(rpX+S(160), ry+S(9), S(14), entries[0].dragon, entries[0].name);
           drawText(`${entries[0].name.slice(0,8)}  ${entries[0].time.toFixed(1)}s`, rpX+S(185), ry+S(9), {size:S(11), colour:lv<=3?"#ffd700":"#fff", align:"left"});
         }
         else drawText("-", rpX+S(220), ry+S(9), {size:S(11), colour:"#666"});
@@ -1357,7 +1361,7 @@ function drawCustomise() {
       ey2 += S(17);
       entries.slice(0,10).forEach((e,i) => {
         const c2 = i===0?"#ffd700":i<3?"#fff":"#ccc";
-        if (e.dragon) drawMiniDragon(rpX+S(5), ey2, S(10), e.dragon, e.name);
+        if (e.dragon) drawMiniDragon(rpX+S(8), ey2, S(14), e.dragon, e.name);
         [String(i+1),e.name.slice(0,10),e.time.toFixed(1)+"s",String(e.moves)].forEach((txt,j)=>drawText(txt,cols2[j],ey2,{size:S(11),colour:c2,align:"left"}));
         ey2 += S(17);
       });
