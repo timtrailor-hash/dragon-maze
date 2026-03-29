@@ -238,10 +238,13 @@ function drawMiniDragon(x, y, size, dragonData, playerName) {
   if (!dragonData) return;
   const col = DRAGON_COLOURS[dragonData.col] || [200,200,200];
   const eyes = EYE_STYLES[dragonData.eyes] || EYE_STYLES["Big Round"];
-  drawDragon(x, y, size * 0.012, "right", Date.now()/1000, col, eyes, dragonData.wings !== false);
-  // Clickable area to view dragon
+  // size is the desired pixel radius — convert to drawDragon scale
+  const sc = size / 42; // 42 is half the drawDragon unit space
+  drawDragon(x, y, sc, "right", Date.now()/1000, col, eyes, dragonData.wings !== false);
+  // Clickable area to view dragon (generous touch target)
   if (playerName) {
-    btn(x - size, y - size, size*2, size*2, "", {alpha:0, action:()=>{viewingDragon={name:playerName, dragon:dragonData};}});
+    const touchSize = Math.max(size, 20);
+    btn(x - touchSize, y - touchSize, touchSize*2, touchSize*2, "", {alpha:0, action:()=>{viewingDragon={name:playerName, dragon:dragonData};}});
   }
 }
 
@@ -1252,8 +1255,9 @@ function drawCustomise() {
       const entries = leaderboard[boardKey(w2,h2)] || [];
       entries.slice(0,10).forEach((e,i) => {
         const c2 = i===0?"#ffd700":i<3?"#fff":"#ccc";
-        drawText(`${i+1}. ${e.name.slice(0,8)}  ${e.time.toFixed(1)}s`, pad+10, y+8, {size:11, colour:c2, align:"left"});
-        y += 16;
+        if (e.dragon) drawMiniDragon(pad+18, y+8, 10, e.dragon, e.name);
+        drawText(`${i+1}. ${e.name.slice(0,8)}  ${e.time.toFixed(1)}s`, pad+32, y+8, {size:11, colour:c2, align:"left"});
+        y += 20;
       });
       if (!entries.length) { drawText("No scores",W/2,y+10,{size:12,colour:"#666"}); y+=20; }
       btn(pad, y, 80, 20, "< Back", {fontSize:11, colour:[80,50,120], textColour:"#add8e6", action:()=>{lbExpandedLevel=null;}});
