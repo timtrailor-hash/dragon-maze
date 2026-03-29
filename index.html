@@ -58,7 +58,7 @@ resize();
 let state = "new_user"; // new_user, customise, show_leaderboard, playing, challenge, challenge_result, level_complete, how_to_play
 let profiles = JSON.parse(localStorage.getItem("dm_profiles") || '{"users":{},"active":""}');
 // Leaderboard version — bump this to force clear old scores
-const LB_VERSION = 3;
+const LB_VERSION = 4;
 if (parseInt(localStorage.getItem("dm_lb_version")||"0") < LB_VERSION) {
   localStorage.removeItem("dm_leaderboard");
   localStorage.setItem("dm_lb_version", String(LB_VERSION));
