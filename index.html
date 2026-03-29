@@ -1206,8 +1206,12 @@ function drawCustomise() {
         const [w2,h2] = levelDims(lv);
         const entries = leaderboard[boardKey(w2,h2)] || [];
         drawText(`Lv${lv}`, pad+4, y+8, {size:11, colour:"#b4a0dc", bold:true, align:"left"});
-        drawText(entries.length ? `${entries[0].name.slice(0,6)} ${entries[0].time.toFixed(1)}s` : "-",
-          pad+50, y+8, {size:11, colour:entries.length?(lv<=3?"#ffd700":"#fff"):"#666", align:"left"});
+        if (entries.length) {
+          if (entries[0].dragon) drawMiniDragon(pad+45, y+8, 9, entries[0].dragon);
+          drawText(`${entries[0].name.slice(0,6)} ${entries[0].time.toFixed(1)}s`, pad+60, y+8, {size:11, colour:lv<=3?"#ffd700":"#fff", align:"left"});
+        } else {
+          drawText("-", pad+60, y+8, {size:11, colour:"#666", align:"left"});
+        }
         btn(pad, y, bw, 16, "", {alpha:0, action:(function(l){return ()=>{lbExpandedLevel=l;};})(lv)});
         y += 18;
       }
@@ -1307,7 +1311,10 @@ function drawCustomise() {
         const entries = leaderboard[boardKey(w2,h2)] || [];
         const ry = S(375) + (lv-1)*S(22);
         drawText(`Lv ${lv} (${w2}x${h2})`, rpX+S(15), ry+S(9), {size:S(11), colour:"#b4a0dc", bold:true, align:"left"});
-        if (entries.length) drawText(`${entries[0].name.slice(0,8)}  ${entries[0].time.toFixed(1)}s`, rpX+S(180), ry+S(9), {size:S(11), colour:lv<=3?"#ffd700":"#fff", align:"left"});
+        if (entries.length) {
+          if (entries[0].dragon) drawMiniDragon(rpX+S(165), ry+S(9), S(8), entries[0].dragon);
+          drawText(`${entries[0].name.slice(0,8)}  ${entries[0].time.toFixed(1)}s`, rpX+S(185), ry+S(9), {size:S(11), colour:lv<=3?"#ffd700":"#fff", align:"left"});
+        }
         else drawText("-", rpX+S(220), ry+S(9), {size:S(11), colour:"#666"});
         btn(rpX, ry, rpW, S(21), "", {alpha:0, action:(function(l){return ()=>{lbExpandedLevel=l;};})(lv)});
         ctx.strokeStyle = "rgba(80,50,110,0.3)"; ctx.lineWidth = 1;
@@ -1324,6 +1331,7 @@ function drawCustomise() {
       ey2 += S(17);
       entries.slice(0,10).forEach((e,i) => {
         const c2 = i===0?"#ffd700":i<3?"#fff":"#ccc";
+        if (e.dragon) drawMiniDragon(rpX+S(5), ey2, S(10), e.dragon);
         [String(i+1),e.name.slice(0,10),e.time.toFixed(1)+"s",String(e.moves)].forEach((txt,j)=>drawText(txt,cols2[j],ey2,{size:S(11),colour:c2,align:"left"}));
         ey2 += S(17);
       });
@@ -1831,9 +1839,26 @@ mobileInput.addEventListener("input", e => {
   else if (state === "rename_user") { renameText = val.slice(0, 15); }
 });
 mobileInput.addEventListener("keydown", e => {
-  if (e.key === "Enter") {
-    // Trigger the same logic as the main keydown handler
-    document.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter"}));
+  if (e.key === "Enter" || e.key === "Go") {
+    e.preventDefault();
+    if (state === "new_user" && newUserName.trim()) {
+      activeUser = newUserName.trim();
+      profiles.active = activeUser;
+      if (!profiles.users[activeUser]) profiles.users[activeUser] = {colour:"Red",eyes:"Big Round",size:"Medium",wings:true};
+      saveProfiles(); loadUserPrefs(); state = "customise";
+    } else if (state === "rename_user" && renameText.trim()) {
+      const newName = renameText.trim();
+      if (newName !== renameTarget) {
+        profiles.users[newName] = profiles.users[renameTarget];
+        delete profiles.users[renameTarget];
+        if (activeUser === renameTarget) { activeUser = newName; profiles.active = newName; }
+        for (const key in leaderboard) {
+          leaderboard[key].forEach(e2 => { if (e2.name === renameTarget) e2.name = newName; });
+        }
+        saveProfiles(); saveLB();
+      }
+      state = "change_user";
+    }
     mobileInput.blur();
     mobileInput.value = "";
   }
