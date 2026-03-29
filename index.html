@@ -142,6 +142,7 @@ let lbExpandedLevel = null;
 let newUserName = "";
 let renameTarget = ""; // user being renamed
 let renameText = "";
+let deleteTarget = ""; // user pending deletion
 
 // Game state
 let level = 1, maze = null, dragon = null;
@@ -157,6 +158,28 @@ function rgb(c, a) { return a !== undefined ? `rgba(${c[0]},${c[1]},${c[2]},${a}
 function shade(c, amt) { return c.map(v => Math.max(0, Math.min(255, v + amt))); }
 function saveProfiles() { localStorage.setItem("dm_profiles", JSON.stringify(profiles)); }
 function saveLB() { localStorage.setItem("dm_leaderboard", JSON.stringify(leaderboard)); }
+function deletePlayer(name) {
+  // Remove from profiles
+  delete profiles.users[name];
+  if (activeUser === name) {
+    const remaining = Object.keys(profiles.users);
+    activeUser = remaining.length > 0 ? remaining[0] : "";
+    profiles.active = activeUser;
+    if (activeUser) loadUserPrefs();
+  }
+  saveProfiles();
+  // Remove from local leaderboard
+  for (const key in leaderboard) {
+    leaderboard[key] = leaderboard[key].filter(e => e.name !== name);
+    if (leaderboard[key].length === 0) delete leaderboard[key];
+  }
+  saveLB();
+  // Remove from server leaderboard
+  fetch(`${LB_API}/delete_player`, {method:"POST", headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({name})}).catch(()=>{});
+  // If no users left, go back to new user screen
+  if (Object.keys(profiles.users).length === 0) { state = "new_user"; focusMobileInput(""); }
+}
 function boardKey(w, h) { return `${w}x${h}`; }
 const LEVEL_DIMS = [
   [6,6],[7,7],[9,9],[10,10],[11,11],[14,14],[16,16],[18,15],[19,15],[20,15]
@@ -1075,16 +1098,15 @@ function drawNewUser() {
   ctx.fillStyle = "#fff"; roundRect(W/2-180, H/2, 360, 46, 6); ctx.fill();
   ctx.strokeStyle = "#ffd700"; ctx.lineWidth = 3; roundRect(W/2-180, H/2, 360, 46, 6); ctx.stroke();
   drawText(newUserName + "|", W/2, H/2+23, {size:26, colour:"#000", bold:true});
-  drawText(isMobile ? "Tap the box to type your name" : "Press Enter to start!", W/2, H/2+75, {size:18, colour:"#ccc"});
+  drawText(isMobile ? "Tap the box, type your name, then press GO!" : "Type your name and press Enter or GO!", W/2, H/2+75, {size:18, colour:"#ccc"});
   // Invisible button to focus mobile keyboard
   btn(W/2-180, H/2, 360, 46, "", {alpha:0, action:()=>{focusMobileInput(newUserName);}});
-  // Go button
-  if (newUserName.trim()) {
-    btn(W/2-60, H/2+95, 120, 44, "GO!", {colour:[50,200,50], textColour:"#fff", fontSize:22, bold:true,
-      action:()=>{activeUser=newUserName.trim(); profiles.active=activeUser;
-        if(!profiles.users[activeUser]) profiles.users[activeUser]={colour:"Red",eyes:"Big Round",size:"Medium",wings:true};
-        saveProfiles(); loadUserPrefs(); state="customise";}});
-  }
+  // Go button — always visible, greyed out when empty
+  const hasName = newUserName.trim().length > 0;
+  btn(W/2-60, H/2+95, 120, 44, "GO!", {colour:hasName?[50,200,50]:[100,100,100], textColour:hasName?"#fff":"#666", fontSize:22, bold:true,
+    action:()=>{if(!hasName) return; activeUser=newUserName.trim(); profiles.active=activeUser;
+      if(!profiles.users[activeUser]) profiles.users[activeUser]={colour:"Red",eyes:"Big Round",size:"Medium",wings:true};
+      saveProfiles(); loadUserPrefs(); state="customise";}});
   drawCredit();
 }
 
@@ -1342,18 +1364,30 @@ function drawChangeUser() {
     ctx.strokeStyle = "#ffd700"; ctx.lineWidth = 2; roundRect(px+30, py+110, pw-60, 42, 6); ctx.stroke();
     drawText(renameText + "|", W/2, py+131, {size:22, colour:"#000", bold:true});
     btn(W/2-60, py+160, 120, 30, "Cancel", {colour:[160,60,60], textColour:"#fff", fontSize:13, action:()=>{state="change_user";}});
+  } else if (state === "confirm_delete") {
+    // Delete confirmation overlay
+    drawText(`Delete "${deleteTarget}"?`, W/2, py+90, {size:20, colour:"#ff6666", bold:true});
+    drawText("This removes the player and all their leaderboard scores.", W/2, py+120, {size:14, colour:"#ccc"});
+    btn(W/2-130, py+145, 120, 36, "Delete", {colour:[200,50,50], textColour:"#fff", fontSize:16, bold:true,
+      action:()=>{ deletePlayer(deleteTarget); state="change_user"; }});
+    btn(W/2+10, py+145, 120, 36, "Cancel", {colour:[100,80,140], textColour:"#fff", fontSize:16,
+      action:()=>{ state="change_user"; }});
   } else {
     users.forEach((u, i) => {
       const ry = py + 80 + i*50;
       const isAct = u === activeUser;
-      // Select button (wider)
-      btn(px+20, ry, pw-110, 40, u + (isAct?" (current)":""),
+      // Select button
+      btn(px+20, ry, pw-170, 40, u + (isAct?" (current)":""),
         {colour:isAct?[80,50,110]:[60,35,85], textColour:"#fff", fontSize:18,
          action:()=>{ activeUser=u; profiles.active=u; saveProfiles(); loadUserPrefs(); state="customise"; }});
       // Edit name button
-      btn(px+pw-80, ry, 60, 40, "Edit",
+      btn(px+pw-140, ry, 55, 40, "Edit",
         {colour:[100,80,140], textColour:"#add8e6", fontSize:14,
          action:()=>{ renameTarget=u; renameText=u; state="rename_user"; focusMobileInput(u); }});
+      // Delete button
+      btn(px+pw-78, ry, 55, 40, "Del",
+        {colour:[140,50,50], textColour:"#ff9999", fontSize:14,
+         action:()=>{ deleteTarget=u; state="confirm_delete"; }});
     });
     btn(px+20, py+80+users.length*50+15, pw-40, 42, "+ New Player",
       {colour:[40,160,40], textColour:"#fff", fontSize:20,
@@ -1852,7 +1886,7 @@ function gameLoop(ts) {
 
   if (state === "new_user") drawNewUser();
   else if (state === "customise") drawCustomise();
-  else if (state === "change_user" || state === "rename_user") drawChangeUser();
+  else if (state === "change_user" || state === "rename_user" || state === "confirm_delete") drawChangeUser();
   else if (state === "show_leaderboard") drawShowLeaderboard();
   else if (state === "playing" || state === "challenge" || state === "challenge_result") drawPlaying();
   else if (state === "level_complete") drawLevelComplete();
