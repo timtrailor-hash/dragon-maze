@@ -58,7 +58,7 @@ resize();
 let state = "new_user"; // new_user, customise, show_leaderboard, playing, challenge, challenge_result, level_complete, how_to_play
 let profiles = JSON.parse(localStorage.getItem("dm_profiles") || '{"users":{},"active":""}');
 // Leaderboard version — bump this to force clear old scores
-const LB_VERSION = 2;
+const LB_VERSION = 3;
 if (parseInt(localStorage.getItem("dm_lb_version")||"0") < LB_VERSION) {
   localStorage.removeItem("dm_leaderboard");
   localStorage.setItem("dm_lb_version", String(LB_VERSION));
@@ -120,7 +120,7 @@ async function submitScore(boardKey, name, time, moves) {
     await fetch(`${LB_API}/${boardKey}`, {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({name, time: rt, moves, dragon})
+      body: JSON.stringify({name, time: rt, moves, dragon, v: LB_VERSION})
     });
     fetchLeaderboard(); // Refresh from server
   } catch(e) { console.warn("Score submit failed:", e); }
@@ -235,7 +235,8 @@ function generateMaze(w, h) {
 // High-quality dragon drawn with bezier curves, rendered at 4x on offscreen canvas then scaled down
 
 function drawMiniDragon(x, y, size, dragonData, playerName) {
-  if (!dragonData) return;
+  // Default dragon for old scores without dragon data
+  if (!dragonData) dragonData = {col:"Red", eyes:"Big Round", size:"Medium", wings:true};
   const col = DRAGON_COLOURS[dragonData.col] || [200,200,200];
   const eyes = EYE_STYLES[dragonData.eyes] || EYE_STYLES["Big Round"];
   // size is the desired pixel radius — convert to drawDragon scale
