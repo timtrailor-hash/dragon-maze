@@ -1075,7 +1075,7 @@ function drawNewUser() {
   ctx.fillStyle = "#fff"; roundRect(W/2-180, H/2, 360, 46, 6); ctx.fill();
   ctx.strokeStyle = "#ffd700"; ctx.lineWidth = 3; roundRect(W/2-180, H/2, 360, 46, 6); ctx.stroke();
   drawText(newUserName + "|", W/2, H/2+23, {size:26, colour:"#000", bold:true});
-  drawText(isMobile ? "Tap the box to type" : "Press Enter to start!", W/2, H/2+75, {size:18, colour:"#ccc"});
+  drawText(isMobile ? "Tap the box to type your name" : "Press Enter to start!", W/2, H/2+75, {size:18, colour:"#ccc"});
   // Invisible button to focus mobile keyboard
   btn(W/2-180, H/2, 360, 46, "", {alpha:0, action:()=>{focusMobileInput(newUserName);}});
   // Go button
