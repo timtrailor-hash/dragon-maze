@@ -138,6 +138,7 @@ let challengeTimeLimit = 10;
 let challengeTables = new Set([2,3,4,5,6,7,8,9,10,11,12]);
 let startLevel = 1;
 let fullscreenPreview = false;
+let viewingDragon = null; // {name, dragon} popup
 let lbExpandedLevel = null;
 let newUserName = "";
 let renameTarget = ""; // user being renamed
@@ -233,11 +234,34 @@ function generateMaze(w, h) {
 // ─── PROCEDURAL DRAGON RENDERER ───
 // High-quality dragon drawn with bezier curves, rendered at 4x on offscreen canvas then scaled down
 
-function drawMiniDragon(x, y, size, dragonData) {
+function drawMiniDragon(x, y, size, dragonData, playerName) {
   if (!dragonData) return;
   const col = DRAGON_COLOURS[dragonData.col] || [200,200,200];
   const eyes = EYE_STYLES[dragonData.eyes] || EYE_STYLES["Big Round"];
   drawDragon(x, y, size * 0.012, "right", Date.now()/1000, col, eyes, dragonData.wings !== false);
+  // Clickable area to view dragon
+  if (playerName) {
+    btn(x - size, y - size, size*2, size*2, "", {alpha:0, action:()=>{viewingDragon={name:playerName, dragon:dragonData};}});
+  }
+}
+
+function drawDragonPopup() {
+  if (!viewingDragon) return;
+  ctx.fillStyle = "rgba(15,8,25,0.92)"; ctx.fillRect(0,0,W,H);
+  clearButtons();
+  const d = viewingDragon.dragon;
+  const col = DRAGON_COLOURS[d.col] || [200,200,200];
+  const eyes = EYE_STYLES[d.eyes] || EYE_STYLES["Big Round"];
+  const mob = W < 700;
+  drawText(`${viewingDragon.name}'s Dragon`, W/2, mob?40:50, {size:mob?24:32, colour:"#ffd700", bold:true});
+  const sz = (SIZES[d.size] || 0.82) * (mob ? 4 : 5);
+  drawDragon(W/2, H/2 - 20, sz, "right", Date.now()/1000, col, eyes, d.wings !== false);
+  // Info
+  drawText(`${d.col} | ${d.eyes} | ${d.size} | ${d.wings!==false?"Wings":"No Wings"}`, W/2, H - (mob?80:90), {size:mob?14:18, colour:"#ccc"});
+  btn(W/2-60, H-(mob?55:65), 120, 36, "Close", {colour:[120,60,60], textColour:"#fff", fontSize:16, action:()=>{viewingDragon=null;}});
+  // Also close on tap anywhere else
+  btn(0, 0, W, H, "", {alpha:0, action:()=>{viewingDragon=null;}});
+  buttons.forEach(drawBtn);
 }
 
 function drawDragon(cx, cy, scale, dir, t, colourArr, eyeStyle, wings) {
@@ -1091,6 +1115,7 @@ function drawMaze() {
 
 // ─── SCREENS ───
 function drawNewUser() {
+  clearButtons();
   ctx.fillStyle = "#231234"; ctx.fillRect(0,0,W,H);
   drawText("Welcome to Dragon Maze!", W/2, H/2-100, {size:36, colour:"#ffd700", bold:true});
   drawText("What's your name?", W/2, H/2-40, {size:24, colour:"#add8e6", bold:true});
@@ -1098,16 +1123,17 @@ function drawNewUser() {
   ctx.fillStyle = "#fff"; roundRect(W/2-180, H/2, 360, 46, 6); ctx.fill();
   ctx.strokeStyle = "#ffd700"; ctx.lineWidth = 3; roundRect(W/2-180, H/2, 360, 46, 6); ctx.stroke();
   drawText(newUserName + "|", W/2, H/2+23, {size:26, colour:"#000", bold:true});
-  drawText(isMobile ? "Tap the box, type your name, then press GO!" : "Type your name and press Enter or GO!", W/2, H/2+75, {size:18, colour:"#ccc"});
-  // Invisible button to focus mobile keyboard
+  drawText("Type your name and press GO!", W/2, H/2+60, {size:16, colour:"#ccc"});
+  // Invisible button to focus mobile keyboard on the input box
   btn(W/2-180, H/2, 360, 46, "", {alpha:0, action:()=>{focusMobileInput(newUserName);}});
-  // Go button — always visible, greyed out when empty
+  // GO button — big, green, always visible
   const hasName = newUserName.trim().length > 0;
-  btn(W/2-60, H/2+95, 120, 44, "GO!", {colour:hasName?[50,200,50]:[100,100,100], textColour:hasName?"#fff":"#666", fontSize:22, bold:true,
+  btn(W/2-80, H/2+80, 160, 50, "GO!", {colour:hasName?[50,200,50]:[80,80,80], textColour:"#fff", fontSize:26,
     action:()=>{if(!hasName) return; activeUser=newUserName.trim(); profiles.active=activeUser;
       if(!profiles.users[activeUser]) profiles.users[activeUser]={colour:"Red",eyes:"Big Round",size:"Medium",wings:true};
       saveProfiles(); loadUserPrefs(); state="customise";}});
   drawCredit();
+  buttons.forEach(drawBtn);
 }
 
 function drawCustomise() {
@@ -1207,7 +1233,7 @@ function drawCustomise() {
         const entries = leaderboard[boardKey(w2,h2)] || [];
         drawText(`Lv${lv}`, pad+4, y+8, {size:11, colour:"#b4a0dc", bold:true, align:"left"});
         if (entries.length) {
-          if (entries[0].dragon) drawMiniDragon(pad+45, y+8, 9, entries[0].dragon);
+          if (entries[0].dragon) drawMiniDragon(pad+45, y+8, 9, entries[0].dragon, entries[0].name);
           drawText(`${entries[0].name.slice(0,6)} ${entries[0].time.toFixed(1)}s`, pad+60, y+8, {size:11, colour:lv<=3?"#ffd700":"#fff", align:"left"});
         } else {
           drawText("-", pad+60, y+8, {size:11, colour:"#666", align:"left"});
@@ -1312,7 +1338,7 @@ function drawCustomise() {
         const ry = S(375) + (lv-1)*S(22);
         drawText(`Lv ${lv} (${w2}x${h2})`, rpX+S(15), ry+S(9), {size:S(11), colour:"#b4a0dc", bold:true, align:"left"});
         if (entries.length) {
-          if (entries[0].dragon) drawMiniDragon(rpX+S(165), ry+S(9), S(8), entries[0].dragon);
+          if (entries[0].dragon) drawMiniDragon(rpX+S(165), ry+S(9), S(8), entries[0].dragon, entries[0].name);
           drawText(`${entries[0].name.slice(0,8)}  ${entries[0].time.toFixed(1)}s`, rpX+S(185), ry+S(9), {size:S(11), colour:lv<=3?"#ffd700":"#fff", align:"left"});
         }
         else drawText("-", rpX+S(220), ry+S(9), {size:S(11), colour:"#666"});
@@ -1331,7 +1357,7 @@ function drawCustomise() {
       ey2 += S(17);
       entries.slice(0,10).forEach((e,i) => {
         const c2 = i===0?"#ffd700":i<3?"#fff":"#ccc";
-        if (e.dragon) drawMiniDragon(rpX+S(5), ey2, S(10), e.dragon);
+        if (e.dragon) drawMiniDragon(rpX+S(5), ey2, S(10), e.dragon, e.name);
         [String(i+1),e.name.slice(0,10),e.time.toFixed(1)+"s",String(e.moves)].forEach((txt,j)=>drawText(txt,cols2[j],ey2,{size:S(11),colour:c2,align:"left"}));
         ey2 += S(17);
       });
@@ -1401,8 +1427,9 @@ function drawChangeUser() {
       {colour:[40,160,40], textColour:"#fff", fontSize:20,
        action:()=>{newUserName=""; state="new_user"; focusMobileInput("");}});
   }
+  // Close/Back button
+  btn(px+20, py+ph-40, 100, 32, "< Back", {colour:[120,60,60], textColour:"#fff", fontSize:14, action:()=>{state="customise";}});
   buttons.forEach(drawBtn);
-  btn(px+pw-70, py+ph-35, 60, 25, "Close", {colour:[80,50,120], textColour:"#add8e6", fontSize:12, action:()=>{state="customise";}});
 }
 
 function drawShowLeaderboard() {
@@ -1426,7 +1453,7 @@ function drawShowLeaderboard() {
     const lh = mob ? 26 : 30;
     entries.slice(0,10).forEach((e,i)=>{
       const c = i===0?"#ffd700":i<3?"#fff":"#ccc";
-      if (e.dragon) drawMiniDragon(nameX-5, y, mob?12:16, e.dragon);
+      if (e.dragon) drawMiniDragon(nameX-5, y, mob?12:16, e.dragon, e.name);
       drawText(`${i+1}. ${e.name.slice(0,10)}`, nameX+(mob?12:18), y, {size:fs, colour:c, bold:true, align:"left"});
       drawText(`${e.time.toFixed(1)}s`, timeX, y, {size:fs, colour:c, align:"right"});
       drawText(`${e.moves}`, moveX, y, {size:fs-2, colour:c, align:"right"});
@@ -1594,7 +1621,7 @@ function drawLevelComplete() {
     const isMe = rank && i+1===rank;
     const c = isMe?"#64ff64":i===0?"#ffd700":i<3?"#fff":"#ccc";
     if (isMe) { ctx.fillStyle="rgba(80,50,110,0.4)"; ctx.fillRect(W/2-210,ey-10,430,22); }
-    if (e.dragon) drawMiniDragon(W/2-195, ey, 14, e.dragon);
+    if (e.dragon) drawMiniDragon(W/2-195, ey, 14, e.dragon, e.name);
     drawText(`${i+1}. ${e.name.slice(0,10)}`, W/2-175, ey, {size:14, colour:c, bold:true, align:"left"});
     drawText(`${e.time.toFixed(2)}s`, W/2+80, ey, {size:14, colour:c, align:"left"});
     drawText(`${e.moves}`, W/2+160, ey, {size:14, colour:c, align:"left"});
@@ -1916,6 +1943,9 @@ function gameLoop(ts) {
   else if (state === "playing" || state === "challenge" || state === "challenge_result") drawPlaying();
   else if (state === "level_complete") drawLevelComplete();
   else if (state === "how_to_play") drawHowToPlay();
+
+  // Dragon popup overlay (drawn on top of everything)
+  if (viewingDragon) drawDragonPopup();
 
   requestAnimationFrame(gameLoop);
 }
